@@ -1,0 +1,1 @@
+<?php echo 'ROOT_IS_/public_html/b2b_outreach_lamp'; ?>

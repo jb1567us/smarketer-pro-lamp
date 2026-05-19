@@ -1,0 +1,7 @@
+content = open(r'D:\sandbox\b2b_outreach_lamp\includes\Database.php', 'r', encoding='utf-8').read()
+content = content.replace("'db'", "'localhost'")
+content = content.replace("'b2b_outreach'", "'lookover_b2b'")
+content = content.replace("?: 'root'", "?: 'lookover_b2b'")
+content = content.replace("'rootpassword'", "'!Meimeialibe4r'")
+open(r'D:\sandbox\b2b_outreach_lamp\includes\Database.php', 'w', encoding='utf-8').write(content)
+print("Updated Database.php")

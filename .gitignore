@@ -1,0 +1,19 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Caches and environments
+.pytest_cache/
+.especdev/
+.vscode/
+.idea/
+.env
+
+# PHP / WordPress dependencies
+vendor/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini

@@ -1,0 +1,11 @@
+{
+    "name": "vercel-scraper-bridge",
+    "version": "1.0.0",
+    "dependencies": {
+        "puppeteer-core": "^21.0.0",
+        "@sparticuz/chromium": "^119.0.0"
+    },
+    "scripts": {
+        "start": "node index.js"
+    }
+}
