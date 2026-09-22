@@ -17,7 +17,7 @@ REMOTE_BASES = [
 ]
 
 ftp = ftplib.FTP('ftp.lookoverhere.xyz')
-ftp.login('root@lookoverhere.xyz', '!Meimeialibe4r')
+ftp.login('root@lookoverhere.xyz', os.environ.get("FTP_PASS", ""))
 
 for local_rel, remote_rel in FILES:
     with open(local_rel, 'rb') as f:

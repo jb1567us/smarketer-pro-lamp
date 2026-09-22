@@ -5,7 +5,7 @@ import time
 
 FTP_HOST = "ftp.lookoverhere.xyz"
 FTP_USER = "root@lookoverhere.xyz"
-FTP_PASS = "!Meimeialibe4r"
+FTP_PASS = os.environ.get("FTP_PASS", "")
 
 # Deploy to both paths to ensure web server maps it correctly
 REMOTE_BASES = [

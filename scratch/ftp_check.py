@@ -1,8 +1,9 @@
 import ftplib
+import os
 
 FTP_HOST = "ftp.lookoverhere.xyz"
 FTP_USER = "root@lookoverhere.xyz"
-FTP_PASS = "!Meimeialibe4r"
+FTP_PASS = os.environ.get("FTP_PASS", "")
 
 try:
     ftp = ftplib.FTP(FTP_HOST)

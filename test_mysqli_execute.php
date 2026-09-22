@@ -2,7 +2,7 @@
 $host = getenv('DB_HOST') ?: 'localhost';
 $dbname = getenv('DB_NAME') ?: 'lookover_b2b';
 $username = getenv('DB_USER') ?: 'lookover_b2b';
-$password = getenv('DB_PASS') ?: '!Meimeialibe4r';
+$password = getenv('DB_PASS') ?: '';
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 try {

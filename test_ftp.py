@@ -1,7 +1,8 @@
 import ftplib
+import os
 import re
 ftp = ftplib.FTP('ftp.lookoverhere.xyz')
-ftp.login('root@lookoverhere.xyz', '!Meimeialibe4r')
+ftp.login('root@lookoverhere.xyz', os.environ.get("FTP_PASS", ""))
 ftp.cwd('/public_html/b2b_outreach_lamp')
 lines = []
 ftp.retrlines('RETR agent_lab.php', lines.append)

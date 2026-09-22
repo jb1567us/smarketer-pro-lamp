@@ -6,7 +6,7 @@ error_reporting(E_ALL);
 $host = getenv('DB_HOST') ?: 'localhost';
 $dbname = getenv('DB_NAME') ?: 'lookoverhere_wp947';
 $username = getenv('DB_USER') ?: 'lookoverhere_wp947';
-$password = getenv('DB_PASS') ?: ']Vg6[y)1)5SYp]0Z';
+$password = getenv('DB_PASS') ?: '';
 
 $mysqli = new mysqli($host, $username, $password, $dbname);
 

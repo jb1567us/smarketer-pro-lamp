@@ -7,7 +7,7 @@ import urllib.parse
 # 1. FTP Sync
 ftp_host = "ftp.lookoverhere.xyz"
 ftp_user = "root@lookoverhere.xyz"
-ftp_pass = "!Meimeialibe4r"
+ftp_pass = os.environ.get("FTP_PASS", "")
 local_dir = r"D:\sandbox\b2b_outreach_lamp"
 remote_dir = "/b2b_outreach_lamp"
 

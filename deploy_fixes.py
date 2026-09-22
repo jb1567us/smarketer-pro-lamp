@@ -3,7 +3,7 @@ import os
 
 FTP_HOST = "ftp.lookoverhere.xyz"
 FTP_USER = "root@lookoverhere.xyz"
-FTP_PASS = "!Meimeialibe4r"
+FTP_PASS = os.environ.get("FTP_PASS", "")
 REMOTE_BASE = "/public_html/b2b_outreach_lamp"
 
 files_to_upload = [
