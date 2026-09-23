@@ -17,6 +17,21 @@ require_once __DIR__ . '/../includes/autoload.php';
 \App\Auth::requireApiAuth();
 $pdo = \App\Database::getConnection();
 
+// Item 8: leads.country_code exists only after the gaps migration. Probe once
+// so add/edit degrade gracefully on pre-migration databases instead of
+// fataling on an unknown column.
+$hasCountryCol = false;
+try {
+    $colStmt = $pdo->prepare(
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " .
+        "AND TABLE_NAME = 'leads' AND COLUMN_NAME = 'country_code' LIMIT 1"
+    );
+    $colStmt->execute();
+    $hasCountryCol = (bool)$colStmt->fetch();
+} catch (\Throwable $e) {
+    $hasCountryCol = false;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 $action = $_GET['action'] ?? null;
 
@@ -109,7 +124,8 @@ try {
                 }
             }
 
-            $allowed = ['company_name', 'contact_name', 'email', 'website', 'status', 'notes', 'lead_score', 'source', 'target_persona', 'country_code'];
+            $allowed = ['company_name', 'contact_name', 'email', 'website', 'status', 'notes', 'lead_score', 'source', 'target_persona'];
+            if ($hasCountryCol) { $allowed[] = 'country_code'; }
             $set = [];
             $vals = [];
             foreach ($allowed as $col) {
@@ -175,17 +191,23 @@ try {
             $input['contact_name'] ?? null,
             $input['target_persona'] ?? null
         );
-        $stmt = $pdo->prepare("INSERT INTO leads (company_name, contact_name, email, website, source, target_persona, country_code) VALUES (?, ?, ?, ?, ?, ?, ?)");
-        $stmt->execute([
+        $leadCols = ['company_name', 'contact_name', 'email', 'website', 'source', 'target_persona'];
+        $leadVals = [
             $input['company_name'],
             $contactName,
             $input['email'],
             $input['website'] ?? '',
             $input['source'] ?? 'API',
             $targetPersona,
+        ];
+        if ($hasCountryCol) {
+            $leadCols[] = 'country_code';
             // Item 8: recipient country (ISO-3166-1 alpha-2); invalid → NULL (unknown)
-            \App\Compliance::normalizeCountryCode($input['country_code'] ?? null),
-        ]);
+            $leadVals[] = \App\Compliance::normalizeCountryCode($input['country_code'] ?? null);
+        }
+        $placeholders = implode(', ', array_fill(0, count($leadCols), '?'));
+        $stmt = $pdo->prepare("INSERT INTO leads (" . implode(', ', $leadCols) . ") VALUES ({$placeholders})");
+        $stmt->execute($leadVals);
         echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
         exit;
     }

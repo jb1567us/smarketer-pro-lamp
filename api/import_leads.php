@@ -55,19 +55,37 @@ try {
     $hasCountryCol = false;
 }
 
+// Campaign attribution (item 10): leads.campaign_id is written only when the
+// column exists; pre-migration imports behave exactly as before.
+$hasCampaignIdCol = false;
+try {
+    $colStmt = $pdo->prepare(
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " .
+        "AND TABLE_NAME = 'leads' AND COLUMN_NAME = 'campaign_id' LIMIT 1"
+    );
+    $colStmt->execute();
+    $hasCampaignIdCol = (bool)$colStmt->fetch();
+} catch (\Throwable $e) {
+    $hasCampaignIdCol = false;
+}
+
 // Skip header
 $header = fgetcsv($handle);
 $imported = 0;
+$skipped = 0;
 $errors = 0;
 
 try {
-    $pdo->beginTransaction();
+    // App\PDO is a mysqli shim without beginTransaction()/commit()/rollBack();
+    // use raw SQL transaction statements instead (import_leads fix, item 10).
+    $pdo->exec('START TRANSACTION');
     $extraCols = [];
+    if ($hasCampaignIdCol) { $extraCols[] = 'campaign_id'; }
     if ($hasLawfulBasisCol) { $extraCols[] = 'lawful_basis'; }
     if ($hasCountryCol) { $extraCols[] = 'country_code'; }
-    $placeholders = implode(', ', array_fill(0, 6 + count($extraCols), '?'));
+    $placeholders = implode(', ', array_fill(0, 5 + count($extraCols), '?'));
     $stmt = $pdo->prepare(
-        "INSERT IGNORE INTO leads (company_name, contact_name, email, website, campaign_id, source" .
+        "INSERT IGNORE INTO leads (company_name, contact_name, email, website, source" .
         ($extraCols ? ', ' . implode(', ', $extraCols) : '') .
         ") VALUES ({$placeholders})"
     );
@@ -81,9 +99,9 @@ try {
                 $row[1] ?? '',
                 $row[2],
                 $row[3] ?? '',
-                $campaign_id,
                 'CSV Import'
             ];
+            if ($hasCampaignIdCol) { $params[] = $campaign_id; }
             if ($hasLawfulBasisCol) {
                 $rowBasis = isset($row[4]) ? substr(trim((string)$row[4]), 0, 50) : '';
                 $params[] = $rowBasis !== '' ? $rowBasis : $lawfulBasisDefault;
@@ -93,18 +111,24 @@ try {
                 $params[] = $rowCountry !== null ? $rowCountry : $countryDefault;
             }
             $stmt->execute($params);
-            $imported++;
+            // INSERT IGNORE skips duplicates silently: only count real inserts.
+            // mysqli affected_rows is 1 for an insert, 0 for an ignored duplicate.
+            if ($stmt->rowCount() > 0) {
+                $imported++;
+            } else {
+                $skipped++;
+            }
         }
     }
-    $pdo->commit();
+    $pdo->exec('COMMIT');
     echo json_encode([
         'success' => true, 
-        'data' => ['count' => $imported],
+        'data' => ['count' => $imported, 'skipped_duplicates' => $skipped],
         'count' => $imported,
         'meta' => ['timestamp' => date('c')]
     ]);
 } catch (Exception $e) {
-    $pdo->rollBack();
+    $pdo->exec('ROLLBACK');
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }

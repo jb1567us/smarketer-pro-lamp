@@ -35,6 +35,20 @@ function check(string $name, bool $cond): bool {
 $ok = true;
 
 // --- 0. Prepare scratch DB ------------------------------------------------
+// Database::credentials() prefers config/db.php over the environment, so a
+// committed config would shadow the DB_* env vars below. Stash it for the
+// duration of the run and restore it afterwards (the repo tree is untouched).
+$repoConfig = $appRoot . 'config/db.php';
+$configStash = null;
+if (is_file($repoConfig)) {
+    $configStash = file_get_contents($repoConfig);
+    unlink($repoConfig);
+}
+register_shutdown_function(function () use ($repoConfig, $configStash) {
+    if ($configStash !== null) {
+        file_put_contents($repoConfig, $configStash);
+    }
+});
 [$c] = [0];
 sh("mysql -u root -e \"DROP DATABASE IF EXISTS $dbName; CREATE DATABASE $dbName CHARACTER SET utf8mb4;\"");
 sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '$dbUser'@'%' IDENTIFIED BY '$dbPass'; GRANT ALL ON $dbName.* TO '$dbUser'@'%'; FLUSH PRIVILEGES;\"");

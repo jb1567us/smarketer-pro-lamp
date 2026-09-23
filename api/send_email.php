@@ -37,6 +37,29 @@ try {
     }
 
     $to = $lead['email'];
+
+    // Campaign attribution (item 10): prefer an explicit request value, fall
+    // back to the lead's assigned campaign. Written to email_logs only when
+    // the compliance DDL has added the column (graceful pre-migration).
+    $campaignId = isset($input['campaign_id']) ? (int)$input['campaign_id'] : 0;
+    if ($campaignId <= 0 && isset($lead['campaign_id'])) {
+        $campaignId = (int)$lead['campaign_id'];
+    }
+    $campaignId = $campaignId > 0 ? $campaignId : null;
+    $hasLogCampaignCol = false;
+    if ($campaignId !== null) {
+        try {
+            $colProbe = $pdo->prepare(
+                "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS " .
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_logs' AND COLUMN_NAME = 'campaign_id' LIMIT 1"
+            );
+            $colProbe->execute();
+            $hasLogCampaignCol = (bool)$colProbe->fetch();
+        } catch (\Exception $e) {
+            $hasLogCampaignCol = false;
+        }
+    }
+
     if (empty($to)) {
         throw new Exception("Lead does not have a valid email address");
     }
@@ -100,13 +123,18 @@ try {
         $stmt->execute([$leadId]);
 
         // 4. Log the send event in email_logs
-        $stmt = $pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?)");
         $meta = json_encode([
-            'subject' => $subject, 
-            'delivered' => true, 
+            'subject' => $subject,
+            'delivered' => true,
             'provider' => $provider
         ]);
-        $stmt->execute([$to, $provider, 'sent', $meta, time()]);
+        if ($hasLogCampaignCol) {
+            $stmt = $pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, campaign_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$to, $provider, $campaignId, 'sent', $meta, time()]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$to, $provider, 'sent', $meta, time()]);
+        }
 
         echo json_encode([
             'success' => true,
@@ -116,9 +144,14 @@ try {
         ]);
     } else {
         // Log the failure event
-        $stmt = $pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?)");
         $meta = json_encode(['subject' => $subject, 'error' => $error, 'provider' => $provider]);
-        $stmt->execute([$to, $provider, 'failed', $meta, time()]);
+        if ($hasLogCampaignCol) {
+            $stmt = $pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, campaign_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$to, $provider, $campaignId, 'failed', $meta, time()]);
+        } else {
+            $stmt = $pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?)");
+            $stmt->execute([$to, $provider, 'failed', $meta, time()]);
+        }
 
         echo json_encode([
             'success' => false,

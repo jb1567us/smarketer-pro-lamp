@@ -254,8 +254,24 @@ class OutreachRunner {
         $subject = "Opportunity for " . $lead['company_name']; // Placeholder, should come from drafts
         $body = $lead['notes']; // Placeholder
         
+        // Campaign attribution (item 10): the queue payload carries
+        // campaign_id (see cron/process_queue.php throttle gate); pass it so
+        // email_logs rows are attributable for per-campaign caps + monitoring.
+        $campaignId = null;
+        if (isset($task['payload'])) {
+            $payload = is_array($task['payload'])
+                ? $task['payload']
+                : json_decode((string)$task['payload'], true);
+            if (is_array($payload) && isset($payload['campaign_id'])) {
+                $campaignId = (int)$payload['campaign_id'] > 0 ? (int)$payload['campaign_id'] : null;
+            }
+        }
+        if ($campaignId === null && isset($lead['campaign_id']) && (int)$lead['campaign_id'] > 0) {
+            $campaignId = (int)$lead['campaign_id'];
+        }
+
         // This leverages the new routing with limits and failover
-        return $this->emailRouter->send($lead['email'], $subject, $body);
+        return $this->emailRouter->send($lead['email'], $subject, $body, $campaignId);
     }
 
     private function updateTaskStatus($id, $status, $error = null) {

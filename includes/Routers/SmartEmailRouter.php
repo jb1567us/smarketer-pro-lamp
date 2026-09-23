@@ -106,10 +106,35 @@ class SmartEmailRouter {
         $status = $result['success'] ? 'sent' : 'failed';
         $meta = json_encode(['error' => $result['error'] ?? null]);
 
+        // campaign_id attribution (item 10): written when the compliance DDL
+        // has added email_logs.campaign_id; skipped gracefully before that.
+        if ($campaignId !== null && $campaignId > 0 && $this->emailLogsHasCampaignId()) {
+            $stmt = $this->pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, campaign_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$to, $provider, $campaignId, $status, $meta, time()]);
+            return;
+        }
         $stmt = $this->pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([$to, $provider, $status, $meta, time()]);
     }
 
+    /** Cached probe: does email_logs.campaign_id exist yet? */
+    private ?bool $emailLogsCampaignId = null;
+    private function emailLogsHasCampaignId(): bool
+    {
+        if ($this->emailLogsCampaignId !== null) {
+            return $this->emailLogsCampaignId;
+        }
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS " .
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'email_logs' AND COLUMN_NAME = 'campaign_id' LIMIT 1"
+            );
+            $stmt->execute();
+            return $this->emailLogsCampaignId = (bool)$stmt->fetch();
+        } catch (\Throwable $e) {
+            return $this->emailLogsCampaignId = false;
+        }
+    }
 
     private function attemptDelivery($provider, $apiKey, $to, $subject, $body) {
         if (!$apiKey) {

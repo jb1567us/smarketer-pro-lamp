@@ -307,19 +307,32 @@ class SimpleHarvester {
             // Insert lead
             $targetPersona = !empty($leadPersona) ? $leadPersona : null;
             $insertStmt = $db->prepare("INSERT INTO leads (company_name, contact_name, email, website, source, campaign_id, notes, status, target_persona, email_source, source_url, is_role_based, consent_status, verification_status) VALUES (?, ?, ?, ?, 'Harvested', ?, ?, 'New', ?, ?, ?, ?, 'unknown', 'unknown')");
-            $insertStmt->execute([
-                $companyName,
-                $contactName,
-                $primaryEmail,
-                $url,
-                $campaignId,
-                $notes,
-                $targetPersona,
-                $emailSource,
-                $url,
-                $isRoleBased
-            ]);
-            $stagedCount++;
+            try {
+                $insertStmt->execute([
+                    $companyName,
+                    $contactName,
+                    $primaryEmail,
+                    $url,
+                    $campaignId,
+                    $notes,
+                    $targetPersona,
+                    $emailSource,
+                    $url,
+                    $isRoleBased
+                ]);
+                $stagedCount++;
+            } catch (\Throwable $e) {
+                // Duplicate-key race (the pre-check above is not atomic):
+                // count as a duplicate, keep harvesting. Anything else is
+                // re-thrown so real failures stay visible.
+                $msg = $e->getMessage();
+                $code = (int)$e->getCode();
+                if ($code === 1062 || stripos($msg, 'duplicate') !== false) {
+                    $duplicatesCount++;
+                    continue;
+                }
+                throw $e;
+            }
         }
 
         return [
