@@ -1050,9 +1050,65 @@ async function fetchStats() {
             document.getElementById('conv-qualified').innerText = `${((s.qualified || 0) / total * 100).toFixed(1)}% Efficiency`;
             document.getElementById('conv-contacted').innerText = `${((s.contacted || 0) / total * 100).toFixed(1)}% Outreach`;
             document.getElementById('conv-converted').innerText = `${((s.converted || 0) / total * 100).toFixed(1)}% Win Rate`;
+
+            // Compliance item 4: visible notice for auto-paused campaigns.
+            renderPauseBanner(s.paused_campaigns || []);
         }
     } catch (e) {
         console.warn('Failed to fetch stats');
+    }
+}
+
+/* Compliance item 4: visible dashboard notice for auto-paused campaigns.
+ * Called from fetchStats() with api/stats.php's paused_campaigns list. */
+function renderPauseBanner(paused) {
+    const box = document.getElementById('pause-banner');
+    if (!box) return;
+    if (!Array.isArray(paused) || paused.length === 0) { box.innerHTML = ''; return; }
+    const rows = paused.map(c => `
+        <div class="flex items-center justify-between gap-3 py-1.5 border-b border-rose-500/10 last:border-0">
+            <div class="min-w-0">
+                <span class="font-bold text-rose-300">${escapeHtml(c.name || ('Campaign #' + c.id))}</span>
+                <span class="text-rose-400/80 text-xs ml-2">${escapeHtml(c.paused_reason || 'rate threshold breached')}</span>
+            </div>
+            <button onclick="resumeCampaign(${parseInt(c.id, 10)})"
+                class="shrink-0 text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 transition">
+                Resume
+            </button>
+        </div>`).join('');
+    box.innerHTML = `
+        <div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4">
+            <div class="flex items-center gap-2 mb-2">
+                <span class="text-rose-400 text-lg">⏸️</span>
+                <h3 class="text-sm font-bold text-rose-200 uppercase tracking-wider">
+                    ${paused.length} campaign${paused.length === 1 ? '' : 's'} auto-paused
+                </h3>
+            </div>
+            <p class="text-xs text-rose-300/80 mb-2">
+                Complaint or bounce rate hit the safety threshold. Review the list/reputation issue, then resume manually.
+            </p>
+            ${rows}
+        </div>`;
+}
+
+async function resumeCampaign(id) {
+    if (!confirm('Resume this campaign? Make sure the underlying complaint/bounce issue is fixed first.')) return;
+    try {
+        const response = await fetch('api/campaigns.php?type=campaigns&action=resume', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id })
+        });
+        const result = await response.json();
+        if (result.success) {
+            toast('Campaign resumed', 'success');
+            fetchStats();
+            if (typeof fetchCampaigns === 'function') fetchCampaigns();
+        } else {
+            toast('Resume failed: ' + (result.error || 'unknown error'), 'error');
+        }
+    } catch (e) {
+        toast('Resume failed: network error', 'error');
     }
 }
 

@@ -71,9 +71,27 @@ try {
     }
 
     $processor = new \App\Domain\TaskProcessor($pdo, new \App\Routers\SmartLLMRouter($pdo));
-    
-    // Fetch pending tasks
-    $stmt = $pdo->query("SELECT id FROM task_queue WHERE status = 'Pending' AND scheduled_at <= NOW() ORDER BY scheduled_at ASC LIMIT 10");
+
+    // --- Item 4: throttles + complaint/bounce monitor ---------------------
+    // Runs once per tick, inside the process lock, before any task is
+    // processed. Never fatal to the queue: any failure is logged and the
+    // queue continues. With all throttle caps at their defaults (unlimited /
+    // disabled) checkSend() short-circuits without counting, and the monitor
+    // only pauses on sustained abusive patterns (>=100 delivered in 7 days
+    // AND a threshold breach), so existing users see no behavior change.
+    $throttles = new \App\Throttles(new \App\DbThrottleStore($pdo));
+    try {
+        $pauses = (new \App\SendMonitor(new \App\DbMonitorStore($pdo)))->run();
+        foreach ($pauses as $summary) {
+            echo "[LOG] Compliance monitor: {$summary}\n";
+        }
+    } catch (\Throwable $e) {
+        echo "[WARN] Compliance monitor failed (queue continues): " . $e->getMessage() . "\n";
+    }
+    $activeProvider = (string)($throttles->getStore()->getSetting('active_email_provider', 'smtp') ?: 'smtp');
+
+    // Fetch pending tasks (task_type + payload are needed for the throttle gate)
+    $stmt = $pdo->query("SELECT id, task_type, payload FROM task_queue WHERE status = 'Pending' AND scheduled_at <= NOW() ORDER BY scheduled_at ASC LIMIT 10");
     $tasks = $stmt->fetchAll();
 
     if (empty($tasks)) {
@@ -81,8 +99,33 @@ try {
     }
 
     foreach ($tasks as $row) {
-        echo "[LOG] Processing Task ID: {$row['id']}...\n";
-        $processor->processTask($row['id']);
+        $taskId = (int)$row['id'];
+        $taskType = (string)($row['task_type'] ?? '');
+
+        // Throttle gate: before a send task is processed, check the three
+        // caps (campaign daily / provider daily / global per-minute). When a
+        // cap is hit the task is DEFERRED -- kept Pending with scheduled_at
+        // pushed out -- never dropped. The next tick retries it automatically.
+        if (in_array($taskType, ['EmailOutreach', 'SocialOutreach'], true)) {
+            $payload = json_decode((string)($row['payload'] ?? ''), true);
+            $payloadCampaign = isset($payload['campaign_id']) ? (int)$payload['campaign_id'] : 0;
+            $decision = $throttles->checkSend(
+                $payloadCampaign > 0 ? $payloadCampaign : null,
+                $activeProvider === 'smart_rotation' ? null : $activeProvider
+            );
+            if (!$decision->allowed) {
+                $defer = $pdo->prepare(
+                    "UPDATE task_queue SET status = 'Pending', scheduled_at = DATE_ADD(NOW(), INTERVAL ? MINUTE), " .
+                    "error_message = ? WHERE id = ?"
+                );
+                $defer->execute([$decision->deferMinutes, 'Throttled (' . $decision->code . '): ' . $decision->detail, $taskId]);
+                echo "[LOG] Task {$taskId} deferred {$decision->deferMinutes}m: {$decision->detail}\n";
+                continue;
+            }
+        }
+
+        echo "[LOG] Processing Task ID: {$taskId}...\n";
+        $processor->processTask($taskId);
     }
 
     echo "[LOG] Finished processing " . count($tasks) . " tasks.\n";

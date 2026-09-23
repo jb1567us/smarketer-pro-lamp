@@ -20,11 +20,33 @@ class SmartEmailRouter {
         ]; 
     }
 
-    public function send($to, $subject, $body) {
+    public function send($to, $subject, $body, ?int $campaignId = null) {
+        // Throttle gate (item 4): global per-minute + per-provider daily caps.
+        // The per-campaign cap is enforced by the queue worker, where campaign
+        // context exists. All caps default to unlimited/disabled, so this is a
+        // no-op unless the admin configures them. Denials return false (never
+        // throw) and are logged like the other guard refusals below.
+        try {
+            $throttles = new \App\Throttles(new \App\DbThrottleStore($this->pdo));
+            $provider = \App\Database::getSetting('active_email_provider', 'smtp');
+            $decision = $throttles->checkSend(
+                null,
+                $provider === 'smart_rotation' ? null : (string)$provider
+            );
+            if (!$decision->allowed) {
+                $this->logEvent($to, 'guard', ['success' => false, 'error' => 'Throttled: ' . $decision->detail], $campaignId);
+                echo "  [SmartRouter] Throttled: {$decision->detail}\n";
+                return false;
+            }
+        } catch (\Throwable $e) {
+            // Throttle infrastructure must never break sending; log and continue.
+            error_log('[SmartRouter] throttle check failed (allowing send): ' . $e->getMessage());
+        }
+
         // Fail fast on fabricated harvester placeholder addresses: no provider
         // loop, no wasted API calls, no reputation damage.
         if (is_string($to) && \App\EmailSender::isPlaceholderAddress($to)) {
-            $this->logEvent($to, 'guard', ['success' => false, 'error' => 'Placeholder address refused']);
+            $this->logEvent($to, 'guard', ['success' => false, 'error' => 'Placeholder address refused'], $campaignId);
             echo "  [SmartRouter] Refused: placeholder recipient address.\n";
             return false;
         }
@@ -66,12 +88,12 @@ class SmartEmailRouter {
             // 5. Log Result & Key Usage
             if ($result['success']) {
                 $rotator->logCall($providerName, $apiKey, 'success');
-                $this->logEvent($to, $providerName, $result);
+                $this->logEvent($to, $providerName, $result, $campaignId);
                 echo "  [SmartRouter] Success via $providerName.\n";
                 return true;
             } else {
                 $rotator->logCall($providerName, $apiKey, 'failed', $result['error'] ?? 'Unknown Error');
-                $this->logEvent($to, $providerName, $result);
+                $this->logEvent($to, $providerName, $result, $campaignId);
                 $attempts[$providerName] = $result['error'] ?? 'Unknown Error';
                 echo "  [SmartRouter] Failed: " . ($result['error'] ?? 'Unknown Error') . "\n";
             }
@@ -80,13 +102,14 @@ class SmartEmailRouter {
         return false;
     }
 
-    private function logEvent($to, $provider, $result) {
+    private function logEvent($to, $provider, $result, ?int $campaignId = null) {
         $status = $result['success'] ? 'sent' : 'failed';
         $meta = json_encode(['error' => $result['error'] ?? null]);
-        
+
         $stmt = $this->pdo->prepare("INSERT INTO email_logs (lead_email, provider_id, status, metadata_json, timestamp) VALUES (?, ?, ?, ?, ?)");
         $stmt->execute([$to, $provider, $status, $meta, time()]);
     }
+
 
     private function attemptDelivery($provider, $apiKey, $to, $subject, $body) {
         if (!$apiKey) {

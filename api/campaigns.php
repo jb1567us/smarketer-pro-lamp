@@ -8,6 +8,10 @@
  *   POST api/campaigns.php?type=campaigns&action=update     update {id, name, description}
  *   POST api/campaigns.php?type=campaigns&action=delete     delete {id}
  *   POST api/campaigns.php?type=campaigns&action=toggle     toggle active {id}
+ *   POST api/campaigns.php?type=campaigns&action=resume     MANUAL resume of an
+ *        auto-paused campaign {id}: clears status='paused' back to 'active',
+ *        clears paused_reason/paused_at, restores is_active=1. Requires the
+ *        item-4 pause columns; 400 when they are not installed.
  *   GET  api/campaigns.php?type=templates&campaign_id=ID     list templates
  *   POST api/campaigns.php?type=templates                    create {campaign_id, subject, body, step_order}
  *   POST api/campaigns.php?type=templates&action=update     update {id, subject, body, step_order}
@@ -66,6 +70,29 @@ try {
                 $stmt->execute([$id]);
                 if ($stmt->rowCount() === 0) campaigns_error(404, 'Campaign not found');
                 echo json_encode(['success' => true, 'id' => $id]);
+                exit;
+            }
+
+            if ($action === 'resume') {
+                // MANUAL resume of an auto-paused campaign. There is no
+                // automatic resume: the admin reviews the pause reason, fixes
+                // the underlying list/reputation problem, then resumes here.
+                $id = (int)($data['id'] ?? 0);
+                if ($id <= 0) campaigns_error(400, 'Missing id');
+                $col = $pdo->query(
+                    "SELECT COUNT(*) AS c FROM information_schema.COLUMNS " .
+                    "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'campaigns' AND COLUMN_NAME = 'status'"
+                )->fetch();
+                if (!$col || (int)$col['c'] === 0) {
+                    campaigns_error(400, 'Pause columns not installed; nothing to resume');
+                }
+                $stmt = $pdo->prepare(
+                    "UPDATE campaigns SET status = 'active', paused_reason = NULL, paused_at = NULL, is_active = 1 " .
+                    "WHERE id = ?"
+                );
+                $stmt->execute([$id]);
+                if ($stmt->rowCount() === 0) campaigns_error(404, 'Campaign not found');
+                echo json_encode(['success' => true, 'id' => $id, 'status' => 'active']);
                 exit;
             }
 

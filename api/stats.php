@@ -38,6 +38,27 @@ try {
     $stmt = $pdo->query("SELECT COUNT(*) as count FROM task_queue WHERE status = 'Completed' AND processed_at >= CURDATE()");
     $stats['completed_today'] = $stmt->fetch()['count'];
 
+    // Compliance item 4: campaigns auto-paused by the complaint/bounce
+    // monitor. The dashboard polls this endpoint, so a banner can read
+    // data.paused_campaigns; the campaigns list (SELECT *) also carries the
+    // status/paused_reason/paused_at columns once the item-4 DDL is applied.
+    // Degrades to an empty list when the pause columns are not installed.
+    $stats['paused_campaigns'] = [];
+    try {
+        $col = $pdo->query(
+            "SELECT COUNT(*) AS c FROM information_schema.COLUMNS " .
+            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'campaigns' AND COLUMN_NAME = 'status'"
+        )->fetch();
+        if ($col && (int)$col['c'] > 0) {
+            $stmt = $pdo->query(
+                "SELECT id, name, paused_reason, paused_at FROM campaigns WHERE status = 'paused' ORDER BY paused_at DESC"
+            );
+            $stats['paused_campaigns'] = $stmt->fetchAll(\App\PDO::FETCH_ASSOC);
+        }
+    } catch (Exception $e) {
+        error_log('[stats.php] paused_campaigns lookup failed: ' . $e->getMessage());
+    }
+
     echo json_encode([
         'success' => true, 
         'data' => $stats,

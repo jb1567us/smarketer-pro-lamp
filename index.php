@@ -76,6 +76,8 @@ require_once __DIR__ . '/includes/autoload.php';
 
     <!-- Main Content Area -->
     <main class="ml-20 lg:ml-64 p-4 lg:p-8 transition-all duration-300">
+        <!-- Auto-pause alert banner (compliance item 4): populated by renderPauseBanner() -->
+        <div id="pause-banner" class="mb-4"></div>
         <!-- Top Control Bar -->
         <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
             <div>

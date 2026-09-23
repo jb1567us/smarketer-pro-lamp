@@ -39,7 +39,34 @@ const SETTINGS_ALLOWLIST = [
     'compliance_casl_ca_block', 'compliance_casl_unknown_country',
     // DNS preflight (SPF/DKIM/DMARC check on campaign start): result cache TTL in hours
     'dns_preflight_cache_hours',
+    // Compliance item 4: send throttles + complaint/bounce monitor.
+    // Per-provider overrides (throttle_provider_daily_cap_<provider>) are
+    // matched by prefix — see SETTINGS_DYNAMIC_PREFIXES.
+    'throttle_sends_per_minute', 'throttle_provider_daily_cap',
+    'throttle_defer_minutes',
+    'monitor_complaint_rate_threshold', 'monitor_bounce_rate_threshold',
+    'monitor_auto_pause', 'monitor_min_delivered',
 ];
+
+/**
+ * Key prefixes accepted dynamically (exact provider suffix varies, e.g.
+ * throttle_provider_daily_cap_sendgrid). Values go through the same scalar
+ * validation and upsert path as allowlisted keys.
+ */
+const SETTINGS_DYNAMIC_PREFIXES = ['throttle_provider_daily_cap_'];
+
+function isAllowedSetting(string $key): bool
+{
+    if (in_array($key, SETTINGS_ALLOWLIST, true)) {
+        return true;
+    }
+    foreach (SETTINGS_DYNAMIC_PREFIXES as $prefix) {
+        if (str_starts_with($key, $prefix) && strlen($key) > strlen($prefix)) {
+            return true;
+        }
+    }
+    return false;
+}
 
 /** Suffixes (plus explicit keys) treated as secrets: redacted on read. */
 const SETTINGS_SECRET_SUFFIXES = ['_api_key', '_api_token', '_pass', '_password', '_secret', '_token'];
@@ -84,7 +111,7 @@ try {
         $updated = 0;
         $skippedSecrets = 0;
         foreach ($data as $key => $value) {
-            if (!is_string($key) || !in_array($key, SETTINGS_ALLOWLIST, true)) {
+            if (!is_string($key) || !isAllowedSetting($key)) {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Unknown setting key: ' . substr((string)$key, 0, 64)]);
                 exit;
