@@ -9,11 +9,11 @@
  */
 declare(strict_types=1);
 
-if (!class_exists('PDO', false)) {
-
 use Exception;
 use mysqli;
 use mysqli_stmt;
+
+if (!class_exists('PDO', false)) {
 
 class PDOException extends Exception {}
 

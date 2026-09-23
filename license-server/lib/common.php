@@ -141,7 +141,7 @@ function ls_generate_key(): string
  * Look up a license row by plaintext key. Returns the row array or null.
  * Deliberately does not distinguish "unknown key" from "wrong key".
  */
-function ls_find_license(PDO $pdo, string $key): ?array
+function ls_find_license($pdo, string $key): ?array
 {
     $norm = ls_normalize_key($key);
     if ($norm === '') {
@@ -159,7 +159,7 @@ function ls_find_license(PDO $pdo, string $key): ?array
     return $row;
 }
 
-function ls_license_domains(PDO $pdo, int $licenseId): array
+function ls_license_domains($pdo, int $licenseId): array
 {
     $stmt = $pdo->prepare('SELECT domain FROM license_domains WHERE license_id = ? ORDER BY domain');
     $stmt->execute([$licenseId]);
@@ -170,11 +170,12 @@ function ls_license_domains(PDO $pdo, int $licenseId): array
  * Simple per-IP rate limit backed by the rate_limits table.
  * Emits a 429 JSON response when exceeded; otherwise returns silently.
  */
-function ls_rate_limit(PDO $pdo, string $ip, int $maxHits = 60, int $windowSeconds = 60): void
+function ls_rate_limit($pdo, string $ip, int $maxHits = 60, int $windowSeconds = 60): void
 {
     $now = time();
     $windowStart = (int)floor($now / $windowSeconds) * $windowSeconds;
-    $pdo->beginTransaction();
+    $useTx = method_exists($pdo, 'beginTransaction');
+    if ($useTx) { $pdo->beginTransaction(); }
     try {
         $stmt = $pdo->prepare('SELECT window_start, hits FROM rate_limits WHERE ip = ? FOR UPDATE');
         $stmt->execute([$ip]);
@@ -190,13 +191,13 @@ function ls_rate_limit(PDO $pdo, string $ip, int $maxHits = 60, int $windowSecon
             $stmt = $pdo->prepare('UPDATE rate_limits SET hits = ? WHERE ip = ?');
             $stmt->execute([$hits, $ip]);
             if ($hits > $maxHits) {
-                $pdo->commit();
+                if ($useTx) { $pdo->commit(); }
                 ls_json_response(['valid' => false, 'reason' => 'rate_limited', 'retry_after' => $windowStart + $windowSeconds - $now], 429);
             }
         }
-        $pdo->commit();
+        if ($useTx) { $pdo->commit(); }
     } catch (Throwable $e) {
-        if ($pdo->inTransaction()) {
+        if ($useTx && $pdo->inTransaction()) {
             $pdo->rollBack();
         }
         // Rate limiting must never take the API down: fail open on limiter errors.
