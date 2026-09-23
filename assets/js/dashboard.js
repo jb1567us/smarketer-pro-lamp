@@ -214,6 +214,38 @@ async function deleteCampaign(id, name) {
     } catch (e) { toast('Network error', 'error'); }
 }
 
+/* ─────────────────────────────────────────────────────────────
+   PRE-SEND HONEST NOTICE (Fix 1: provider-first sending)
+   Shown at campaign launch / manual resume: confirms which provider
+   account and sender address will send, and states plainly that
+   deliverability depends on the buyer's provider, account reputation,
+   list quality, and DNS setup — not on this software.
+───────────────────────────────────────────────────────────── */
+function showSendNotice(notice) {
+    if (!notice) return;
+    const container = document.getElementById('modal-container');
+    const cfg = notice.configured === false
+        ? `<p class="text-xs text-rose-400 font-semibold bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">⚠️ No credentials stored for this provider — sends will fail until you add them in Settings.</p>`
+        : '';
+    container.innerHTML = `
+        <div class="glass p-8 rounded-2xl w-full max-w-lg text-left">
+            <h3 class="text-xl font-bold mb-2">${escapeHtml(notice.heading || 'Before this campaign sends')}</h3>
+            <div class="space-y-3">
+                <div class="rounded-xl border border-white/10 bg-slate-900/60 px-4 py-3">
+                    <p class="text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Sending via</p>
+                    <p class="text-sm font-bold text-white">${escapeHtml(notice.provider_label || notice.provider || '')}</p>
+                    <p class="text-xs text-slate-400 mt-0.5">From: ${escapeHtml(notice.sender_email || '(not configured)')}</p>
+                </div>
+                <p class="text-xs text-slate-300 leading-relaxed whitespace-pre-line">${escapeHtml(notice.body || '')}</p>
+                ${cfg}
+                <div class="flex gap-3 pt-2">
+                    <button onclick="closeModal()" class="flex-1 bg-blue-600 hover:bg-blue-500 py-2.5 rounded-xl font-bold text-sm transition">Understood</button>
+                </div>
+            </div>
+        </div>`;
+    container.classList.remove('hidden');
+}
+
 async function toggleCampaignActive(id, overrideDnsPreflight = false) {
     try {
         const res = await fetch('api/campaigns.php?type=campaigns&action=toggle', {
@@ -225,6 +257,10 @@ async function toggleCampaignActive(id, overrideDnsPreflight = false) {
         const pf = result.dns_preflight || null;
         if (result.success) {
             toast(result.is_active ? 'Campaign activated' : 'Campaign paused', 'info');
+            // Honest pre-send notice on launch (campaign activated, not paused).
+            if (result.is_active && result.send_notice) {
+                showSendNotice(result.send_notice);
+            }
             // Surface a DNS preflight warning prominently (allowed but degraded).
             if (pf && pf.summary === 'warn' && Array.isArray(pf.missing) && pf.missing.length) {
                 alert('DNS preflight warning for ' + (pf.domain || 'sender domain') + ':\n- ' +
@@ -1136,6 +1172,9 @@ async function resumeCampaign(id) {
         const result = await response.json();
         if (result.success) {
             toast('Campaign resumed', 'success');
+            if (result.send_notice) {
+                showSendNotice(result.send_notice);
+            }
             fetchStats();
             if (typeof fetchCampaigns === 'function') fetchCampaigns();
         } else {
@@ -1306,9 +1345,13 @@ window.toggleActiveProviderFields = function() {
 
     // 3. Email Providers
     const activeEmail = document.getElementById('setting-active_email_provider')?.value || 'smtp';
+    // SMTP-group providers: mail leaves the shared host over SMTP. Kept in
+    // sync with \App\SendNotice::SMTP_PROVIDERS (+ future *_smtp keys).
+    const smtpProviders = ['smtp', 'custom_smtp', 'amazon_ses', 'sendpulse', 'zoho_smtp', 'netcore_smtp'];
+    const isSmtpProvider = smtpProviders.includes(activeEmail) || activeEmail.endsWith('_smtp');
     const smtpGroup = document.getElementById('email-group-smtp');
     if (smtpGroup) {
-        if (activeEmail === 'smtp' || activeEmail === 'custom_smtp' || activeEmail.endsWith('_smtp')) {
+        if (isSmtpProvider) {
             smtpGroup.classList.remove('hidden');
         } else {
             smtpGroup.classList.add('hidden');
@@ -1317,7 +1360,7 @@ window.toggleActiveProviderFields = function() {
     
     // Also toggle fields for other email APIs
     document.querySelectorAll('.email-provider-fields').forEach(el => el.classList.add('hidden'));
-    if (activeEmail !== 'smtp' && activeEmail !== 'custom_smtp' && !activeEmail.endsWith('_smtp')) {
+    if (!isSmtpProvider) {
         const emailApiGroup = document.getElementById(`email-group-${activeEmail}`);
         if (emailApiGroup) emailApiGroup.classList.remove('hidden');
     }
@@ -1384,8 +1427,9 @@ window.updateSetupProgress = function() {
 
     // 3. Check active Email
     const activeEmail = document.getElementById('setting-active_email_provider')?.value || 'smtp';
+    const smtpProviders = ['smtp', 'custom_smtp', 'amazon_ses', 'sendpulse', 'zoho_smtp', 'netcore_smtp'];
     let emailConnected = false;
-    if (activeEmail === 'smtp' || activeEmail === 'custom_smtp' || activeEmail.endsWith('_smtp')) {
+    if (smtpProviders.includes(activeEmail) || activeEmail.endsWith('_smtp')) {
         const host = document.getElementById('setting-smtp_host')?.value || '';
         const user = document.getElementById('setting-smtp_user')?.value || '';
         emailConnected = host.length > 0 && user.length > 0;

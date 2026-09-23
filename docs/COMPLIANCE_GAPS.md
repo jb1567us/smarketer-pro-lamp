@@ -154,7 +154,7 @@ auditable.
 **What:** `List-Unsubscribe` / `List-Unsubscribe-Post` headers are now added
 on every provider path that supports custom headers (Brevo, Mailgun, Mailjet,
 Postmark, MailerSend, Mailtrap, ZeptoMail/Zoho, Pepipost/Netcore, Resend,
-SendGrid, plus all SMTP paths). One-click unsubscribe lowers complaint volume — and complaints are the signal Gmail/Yahoo bulk-sender rules actually penalize, so this protects inbox placement and your sender account.
+SendGrid, plus all SMTP paths). One-click unsubscribe lowers complaint volume — and complaints are the signal Gmail/Yahoo bulk-sender rules actually penalize, so fewer complaints means fewer penalty signals against your sender account. (No inbox-placement promise: placement still depends on your provider, account reputation, list, and DNS.)
 
 **Limitations:** Pepipost's custom-header mechanism and MailerSend's (may
 need a paid plan) should get a live smoke test; the footer link + suppression
