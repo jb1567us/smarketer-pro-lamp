@@ -209,16 +209,35 @@ async function deleteCampaign(id, name) {
     } catch (e) { toast('Network error', 'error'); }
 }
 
-async function toggleCampaignActive(id) {
+async function toggleCampaignActive(id, overrideDnsPreflight = false) {
     try {
         const res = await fetch('api/campaigns.php?type=campaigns&action=toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id })
+            body: JSON.stringify({ id, override_dns_preflight: overrideDnsPreflight })
         });
         const result = await res.json();
-        if (result.success) { toast(result.is_active ? 'Campaign activated' : 'Campaign paused', 'info'); fetchCampaigns(); }
-        else toast(result.error || 'Toggle failed', 'error');
+        const pf = result.dns_preflight || null;
+        if (result.success) {
+            toast(result.is_active ? 'Campaign activated' : 'Campaign paused', 'info');
+            // Surface a DNS preflight warning prominently (allowed but degraded).
+            if (pf && pf.summary === 'warn' && Array.isArray(pf.missing) && pf.missing.length) {
+                alert('DNS preflight warning for ' + (pf.domain || 'sender domain') + ':\n- ' +
+                    pf.missing.join('\n- ') +
+                    '\n\nThe campaign was started, but fix these DNS records to protect deliverability.');
+            }
+            fetchCampaigns();
+        } else if (res.status === 422 && pf && pf.summary === 'fail') {
+            // Fully unauthenticated sender domain: the API blocked the start.
+            // Offer the explicit per-campaign override (deliberate acknowledgment).
+            const msg = (result.error || 'DNS preflight failed') +
+                (Array.isArray(pf.missing) && pf.missing.length ? '\n\nMissing:\n- ' + pf.missing.join('\n- ') : '');
+            if (confirm(msg + '\n\nStart the campaign anyway and remember this override for the campaign?')) {
+                return toggleCampaignActive(id, true);
+            }
+        } else {
+            toast(result.error || 'Toggle failed', 'error');
+        }
     } catch (e) { toast('Network error', 'error'); }
 }
 

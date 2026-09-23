@@ -37,6 +37,8 @@ const SETTINGS_ALLOWLIST = [
     // Compliance (CAN-SPAM / CASL sender identity)
     'company_legal_name', 'physical_address', 'app_base_url',
     'compliance_casl_ca_block',
+    // DNS preflight (SPF/DKIM/DMARC check on campaign start): result cache TTL in hours
+    'dns_preflight_cache_hours',
 ];
 
 /** Suffixes (plus explicit keys) treated as secrets: redacted on read. */

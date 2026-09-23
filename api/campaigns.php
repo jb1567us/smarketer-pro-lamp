@@ -50,6 +50,11 @@ try {
                 if ($id <= 0 || $name === '') campaigns_error(400, 'Missing id or name');
                 $stmt = $pdo->prepare("UPDATE campaigns SET name = ?, description = ? WHERE id = ?");
                 $stmt->execute([$name, $data['description'] ?? '', $id]);
+                // Optional: clear/set the DNS preflight override without SQL
+                // (setCampaignOverride is a no-op until the column is migrated).
+                if (array_key_exists('dns_preflight_override', $data)) {
+                    \App\DnsAuth::setCampaignOverride($pdo, $id, !empty($data['dns_preflight_override']));
+                }
                 echo json_encode(['success' => true, 'id' => $id]);
                 exit;
             }
@@ -67,13 +72,43 @@ try {
             if ($action === 'toggle') {
                 $id = (int)($data['id'] ?? 0);
                 if ($id <= 0) campaigns_error(400, 'Missing id');
+                $stmt = $pdo->prepare("SELECT id, is_active FROM campaigns WHERE id = ?");
+                $stmt->execute([$id]);
+                $campaign = $stmt->fetch();
+                if (!$campaign) campaigns_error(404, 'Campaign not found');
+
+                // Preflight gate: only when this toggle ACTIVATES the campaign
+                // (inactive -> active = start of sending). Pausing is never gated.
+                $preflight = null;
+                if (!(bool)$campaign['is_active']) {
+                    $overrideRequested = !empty($data['override_dns_preflight']);
+                    $gate = \App\DnsAuth::campaignStartGate($pdo, $id, $overrideRequested);
+                    $preflight = $gate['report'];
+                    if ($gate['override_granted']) {
+                        \App\DnsAuth::setCampaignOverride($pdo, $id, true);
+                    }
+                    if (!$gate['allowed']) {
+                        http_response_code(422);
+                        echo json_encode([
+                            'success' => false,
+                            'error' => $gate['block_message'],
+                            'dns_preflight' => $preflight,
+                        ]);
+                        exit;
+                    }
+                }
+
                 $stmt = $pdo->prepare("UPDATE campaigns SET is_active = NOT is_active WHERE id = ?");
                 $stmt->execute([$id]);
                 $stmt = $pdo->prepare("SELECT is_active FROM campaigns WHERE id = ?");
                 $stmt->execute([$id]);
                 $row = $stmt->fetch();
                 if (!$row) campaigns_error(404, 'Campaign not found');
-                echo json_encode(['success' => true, 'id' => $id, 'is_active' => (bool)$row['is_active']]);
+                $resp = ['success' => true, 'id' => $id, 'is_active' => (bool)$row['is_active']];
+                if ($preflight !== null) {
+                    $resp['dns_preflight'] = $preflight;
+                }
+                echo json_encode($resp);
                 exit;
             }
 
