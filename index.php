@@ -847,6 +847,7 @@ require_once __DIR__ . '/includes/autoload.php';
     <div id="modal-container" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden z-[100] flex items-center justify-center p-4"></div>
     <div id="drawer-container" class="fixed top-0 right-0 h-full w-full max-w-lg bg-slate-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl z-[90] transform translate-x-full transition-transform duration-300 ease-out flex flex-col"></div>
 
+    <script src="assets/js/diagnostics.js"></script>
     <script src="assets/js/dashboard.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
@@ -857,6 +858,28 @@ require_once __DIR__ . '/includes/autoload.php';
                 tab = 'leads';
             }
             showTab(tab);
+            // Fix 3: diagnostics tab wiring. dashboard.js's showTab() has a hardcoded
+            // tab list, so decorate it: keep its behavior, then handle the
+            // diagnostics tab visibility + lazy load here.
+            (function () {
+                var origShowTab = window.showTab;
+                window.showTab = function (tabName) {
+                    if (typeof origShowTab === 'function') origShowTab(tabName);
+                    var el = document.getElementById('diagnostics-tab');
+                    var btn = document.getElementById('tab-diagnostics-btn');
+                    var active = tabName === 'diagnostics';
+                    if (el) el.classList.toggle('hidden', !active);
+                    if (btn) {
+                        btn.classList.toggle('active', active);
+                        btn.classList.toggle('bg-blue-600/10', active);
+                        btn.classList.toggle('text-blue-400', active);
+                        btn.classList.toggle('text-slate-400', !active);
+                        btn.classList.toggle('hover:bg-white/5', !active);
+                    }
+                    if (active && typeof loadDiagnostics === 'function') loadDiagnostics();
+                };
+                if (tab === 'diagnostics' && typeof loadDiagnostics === 'function') loadDiagnostics();
+            })();
 
             // Intercept sidebar clicks for seamless SPA tab switching on the dashboard
             document.querySelectorAll('a.tab-btn').forEach(btn => {
