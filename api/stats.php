@@ -38,6 +38,14 @@ try {
     $stmt = $pdo->query("SELECT COUNT(*) as count FROM task_queue WHERE status = 'Completed' AND processed_at >= CURDATE()");
     $stats['completed_today'] = $stmt->fetch()['count'];
 
+    // FIX2 verification funnel: honest data-quality stages. Total raw
+    // harvested, actually-verified counts (valid/invalid/risky/unknown),
+    // suppressed-excluded, and mailable = verified valid AND not suppressed.
+    // Degrades to zeros when the verification columns/tables are absent.
+    foreach (\App\FunnelStats::compute($pdo) as $key => $value) {
+        $stats['funnel_' . $key] = $value;
+    }
+
     // Compliance item 4: campaigns auto-paused by the complaint/bounce
     // monitor. The dashboard polls this endpoint, so a banner can read
     // data.paused_campaigns; the campaigns list (SELECT *) also carries the

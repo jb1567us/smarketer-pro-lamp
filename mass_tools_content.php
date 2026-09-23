@@ -550,7 +550,7 @@
                 <div class="flex justify-between items-center bg-white/[0.02] p-4 rounded-2xl border border-white/5">
                     <div>
                         <span class="text-xs font-bold text-slate-400">⚡ Target Prospect List</span>
-                        <p class="text-[11px] text-slate-500 mt-0.5">Found ${results.length} high-fidelity prospect matches</p>
+                        <p class="text-[11px] text-slate-500 mt-0.5">Found ${results.length} raw prospects — unverified</p>
                     </div>
                     <button onclick="addAllLeadsToCRM()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 transition text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/10 flex items-center gap-1.5">
                         📥 Import All to CRM
@@ -577,14 +577,20 @@
                 }
             }
 
-            let trustScore = item.score ? Math.round(item.score * 100) : null;
-            if (!trustScore || trustScore < 10) {
-                trustScore = 75 + ((title.length + item.url.length) % 21);
-            }
+            // FIX2: only show a match score when the result actually carries
+            // one. Never fabricate a score (the old code synthesized
+            // 75–95% from string lengths, presenting fiction as data).
+            let trustScore = (typeof item.score === 'number' && isFinite(item.score) && item.score >= 0)
+                ? Math.round(item.score * 100)
+                : null;
 
             let scoreColor = 'from-emerald-500 to-teal-400 text-emerald-400';
-            if (trustScore < 80) {
-                scoreColor = 'from-blue-500 to-indigo-400 text-blue-400';
+            let scoreBadge = '<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.04] border border-white/10 text-slate-500">Not scored</span>';
+            if (trustScore !== null) {
+                if (trustScore < 80) {
+                    scoreColor = 'from-blue-500 to-indigo-400 text-blue-400';
+                }
+                scoreBadge = `<span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.04] border border-white/10 ${scoreColor}">🛡️ ${trustScore}% MATCH</span>`;
             }
 
             const extractedEmails = extractEmailsFromText(title + ' ' + (item.content || '') + ' ' + (item.snippet || ''));
@@ -619,9 +625,7 @@
                     <div>
                         <div class="flex justify-between items-start gap-2 mb-2">
                             <h5 class="text-sm font-bold text-white group-hover:text-blue-400 transition truncate max-w-[70%]">${companyName}</h5>
-                            <span class="px-2 py-0.5 rounded-full text-[9px] font-bold bg-white/[0.04] border border-white/10 ${scoreColor}">
-                                🛡️ ${trustScore}% MATCH
-                            </span>
+                            ${scoreBadge}
                         </div>
                         <a href="${item.url}" target="_blank" class="text-[10px] text-blue-400 hover:underline flex items-center gap-1 mb-3 font-mono truncate">
                             🔗 ${item.url}
@@ -715,7 +719,7 @@
     let resolveConfirm = null;
 
     function openCRMConfirmModal(count) {
-        document.getElementById('crm-confirm-text').innerText = `Are you sure you want to import all ${count} prospects into your CRM?`;
+        document.getElementById('crm-confirm-text').innerText = `Import all ${count} prospects into your CRM? They are unverified — enable email verification before sending.`;
         const modal = document.getElementById('crm-confirm-modal');
         modal.classList.remove('hidden');
         modal.classList.add('flex');

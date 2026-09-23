@@ -94,14 +94,14 @@ require_once __DIR__ . '/includes/autoload.php';
         <!-- KPI Ribbon -->
         <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             <div class="glass p-4 rounded-2xl border-l-4 border-blue-500">
-                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Prospects Discovered</div>
-                <div id="stat-total_leads" class="text-2xl font-bold">0</div>
-                <div class="text-[10px] text-blue-500 mt-1 font-medium">Found in Discovery</div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Lead Funnel</div>
+                <div id="stat-funnel_mailable" class="text-2xl font-bold">0</div>
+                <div id="funnel-detail" class="text-[10px] text-blue-500 mt-1 font-medium">Mailable = verified valid, not suppressed</div>
             </div>
             <div class="glass p-4 rounded-2xl border-l-4 border-purple-500">
                 <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Interested Leads</div>
                 <div id="stat-qualified" class="text-2xl font-bold">0</div>
-                <div id="conv-qualified" class="text-[10px] text-purple-500 mt-1 font-medium">Ready for Outreach</div>
+                <div id="conv-qualified" class="text-[10px] text-purple-500 mt-1 font-medium">Qualified — not necessarily verified</div>
             </div>
             <div class="glass p-4 rounded-2xl border-l-4 border-emerald-500">
                 <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Conversations In Progress</div>

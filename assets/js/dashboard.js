@@ -401,6 +401,8 @@ async function viewLead(id) {
             <div>Status: <span class="text-white">${lead.status}</span></div>
             <div class="h-4 w-px bg-white/10"></div>
             <div>Email: <span class="text-white">${escapeHtml(lead.email || 'N/A')}</span></div>
+            <div class="h-4 w-px bg-white/10"></div>
+            <div>Verification: <span class="text-white">${escapeHtml(verificationLabel(lead))}</span></div>
         </div>
         <div class="flex-1 overflow-y-auto p-6 space-y-6" id="drawer-traces-container">
             <div class="text-center py-12">
@@ -755,6 +757,19 @@ function getScoreColor(score) {
     return 'text-slate-500';
 }
 
+/* FIX2: plain-language verification state for the lead drawer. Never claims
+ * "verified" for a mailbox that was never actually checked. */
+function verificationLabel(lead) {
+    const status = (lead && lead.verification_status) ? String(lead.verification_status) : 'unknown';
+    const at = lead && lead.verified_at ? ` (${lead.verified_at})` : '';
+    switch (status) {
+        case 'valid':   return `Valid — checked${at}`;
+        case 'invalid': return `Invalid — checked${at}`;
+        case 'risky':   return `Risky — checked${at}`;
+        default:        return 'Not verified';
+    }
+}
+
 async function analyzeLead(id, btn) {
     const originalHtml = btn.innerHTML;
     btn.innerHTML = '⌛';
@@ -1023,7 +1038,7 @@ async function submitImportLeads() {
         });
         const result = await response.json();
         if (result.success) {
-            alert(`Successfully imported ${result.count} leads.`);
+            alert(`Successfully imported ${result.count} leads (unverified).`);
             closeModal();
             fetchLeads();
             fetchStats();
@@ -1048,10 +1063,26 @@ async function fetchStats() {
             }
 
             // Calculate Funnel Percentages
-            const total = s.total_leads || 1;
-            document.getElementById('conv-qualified').innerText = `${((s.qualified || 0) / total * 100).toFixed(1)}% Efficiency`;
-            document.getElementById('conv-contacted').innerText = `${((s.contacted || 0) / total * 100).toFixed(1)}% Outreach`;
-            document.getElementById('conv-converted').innerText = `${((s.converted || 0) / total * 100).toFixed(1)}% Win Rate`;
+            const total = (s.funnel_harvested ?? s.total_leads ?? 0) || 1;
+            document.getElementById('conv-qualified').innerText = `${((s.qualified || 0) / total * 100).toFixed(1)}% of harvested`;
+            document.getElementById('conv-contacted').innerText = `${((s.contacted || 0) / total * 100).toFixed(1)}% of harvested`;
+            document.getElementById('conv-converted').innerText = `${((s.converted || 0) / total * 100).toFixed(1)}% of harvested`;
+
+            // FIX2: honest verification-funnel detail line. Mailable means
+            // verified-valid AND not suppressed — NOT "ready to send".
+            // The invalid rate is computed only over addresses that were
+            // actually checked; 'unknown' rows were never verified.
+            const fChecked = s.funnel_checked ?? 0;
+            const fInvalid = s.funnel_invalid ?? 0;
+            const invalidPct = fChecked > 0 ? ((fInvalid / fChecked) * 100).toFixed(1) : '0.0';
+            const funnelDetail = document.getElementById('funnel-detail');
+            if (funnelDetail) {
+                funnelDetail.innerText =
+                    `${(s.funnel_harvested ?? 0).toLocaleString()} harvested · ` +
+                    `${(s.funnel_verified_valid ?? 0).toLocaleString()} verified valid · ` +
+                    `${invalidPct}% invalid of ${fChecked.toLocaleString()} checked · ` +
+                    `${(s.funnel_suppressed ?? 0).toLocaleString()} suppressed`;
+            }
 
             // Compliance item 4: visible notice for auto-paused campaigns.
             renderPauseBanner(s.paused_campaigns || []);
