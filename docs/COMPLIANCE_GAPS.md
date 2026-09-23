@@ -7,6 +7,13 @@ the actions you must take, and the known limitations.
 
 **Nothing here phones home. All gates run locally against your database.**
 
+**What these features are (and aren't):** They are guardrails that reduce the
+buyer's business risk — fewer provider bans, a protected sender reputation,
+cleaner lists, less wasted spend. They do not make anyone's sending legal.
+The buyer is the data controller and is liable for their own sending
+practices; these features make risky sends harder to fire off accidentally,
+never one click.
+
 ---
 
 ## 0. How to apply
@@ -147,8 +154,7 @@ auditable.
 **What:** `List-Unsubscribe` / `List-Unsubscribe-Post` headers are now added
 on every provider path that supports custom headers (Brevo, Mailgun, Mailjet,
 Postmark, MailerSend, Mailtrap, ZeptoMail/Zoho, Pepipost/Netcore, Resend,
-SendGrid, plus all SMTP paths). One-click unsubscribe keeps you compliant
-with Gmail/Yahoo bulk-sender rules.
+SendGrid, plus all SMTP paths). One-click unsubscribe lowers complaint volume — and complaints are the signal Gmail/Yahoo bulk-sender rules actually penalize, so fewer complaints means fewer penalty signals against your sender account. (No inbox-placement promise: placement still depends on your provider, account reputation, list, and DNS.)
 
 **Limitations:** Pepipost's custom-header mechanism and MailerSend's (may
 need a paid plan) should get a live smoke test; the footer link + suppression

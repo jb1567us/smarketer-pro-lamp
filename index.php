@@ -57,6 +57,11 @@ require_once __DIR__ . '/includes/autoload.php';
                 <span class="text-xl group-hover:scale-110 transition">⚙️</span>
                 <span class="hidden lg:block font-medium">System Settings</span>
             </a>
+            <!-- Diagnostics -->
+            <a href="index.php?tab=diagnostics" id="tab-diagnostics-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
+                <span class="text-xl group-hover:scale-110 transition">🩺</span>
+                <span class="hidden lg:block font-medium">Diagnostics</span>
+            </a>
         </nav>
 
         <div class="w-full pt-4 border-t border-white/5 space-y-2">
@@ -280,7 +285,7 @@ require_once __DIR__ . '/includes/autoload.php';
                                 <span class="text-xs">✉️</span>
                             </div>
                             <h4 class="font-bold text-xs text-slate-200">Set Up Email Sender</h4>
-                            <p class="text-[10px] text-slate-400 mt-1 leading-relaxed">Standard business SMTP credentials to run high-volume outreach sequences.</p>
+                            <p class="text-[10px] text-slate-400 mt-1 leading-relaxed">Connect your own sending account (SendGrid, Resend, Amazon SES). Your account, your reputation — the app only sends through it.</p>
                         </div>
                         <div class="mt-4 flex items-center justify-between">
                             <span class="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
@@ -438,13 +443,13 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Company Legal Name <span class="text-rose-400">* required for sending</span></label>
                             <input type="text" id="setting-company_legal_name" placeholder="Acme Corp LLC" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
-                            <p class="text-[9px] text-slate-500">Your registered business name. Appears in the footer of every email (CAN-SPAM requirement).</p>
+                            <p class="text-[9px] text-slate-500">Your registered business name. Appears in the footer of every email (required: commercial mail without a real sender identity gets filtered as spam).</p>
                         </div>
 
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Physical Postal Address <span class="text-rose-400">* required for sending</span></label>
                             <textarea id="setting-physical_address" rows="2" placeholder="123 Main St, Austin, TX 78701" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition"></textarea>
-                            <p class="text-[9px] text-slate-500">A valid physical address. PO boxes registered to you are acceptable. Sending is blocked until this is set.</p>
+                            <p class="text-[9px] text-slate-500">A valid physical address. PO boxes registered to you are acceptable. Sends are refused until this is set — mail with a blank sender identity is what gets accounts flagged.</p>
                         </div>
 
                         <div class="space-y-1.5">
@@ -457,16 +462,16 @@ require_once __DIR__ . '/includes/autoload.php';
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">CASL Country Gate (master)</label>
                             <select id="setting-compliance_casl_ca_block" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
                                 <option value="1">On — block unconsented CA / unknown-country sends (recommended)</option>
-                                <option value="0">Off — I accept the legal risk</option>
+                                <option value="0">Off — my risk, my responsibility</option>
                             </select>
-                            <p class="text-[9px] text-slate-500">Master switch for the CASL country gate. It keys off each lead's recorded country (not the .ca domain). Turning it off is logged as your decision.</p>
+                            <p class="text-[9px] text-slate-500">Master switch for the CASL country gate. It keys off each lead's recorded country (not the .ca domain). Turning it off is logged as your decision. You are the data controller for this install: you decide what gets sent, and you are liable for your own sending practices. These gates protect your accounts — they do not make your sending legal.</p>
                         </div>
 
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Unknown-Country CASL Handling</label>
                             <select id="setting-compliance_casl_unknown_country" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
                                 <option value="block">Block unknown-country leads without express consent (recommended)</option>
-                                <option value="allow">Allow — I accept the legal risk</option>
+                                <option value="allow">Allow — my risk, my responsibility</option>
                             </select>
                             <p class="text-[9px] text-slate-500">Safe default for leads with no recorded country. Leads with express consent are never blocked by an unknown country.</p>
                         </div>
@@ -498,18 +503,28 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Outreach Method</label>
                             <select id="setting-active_email_provider" onchange="toggleActiveProviderFields()" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
-                                <option value="smtp">Standard Business Email (SMTP Outbound)</option>
-                                <option value="resend">Resend HTTP API (Recommended)</option>
-                                <option value="brevo">Brevo HTTP API</option>
-                                <option value="sendgrid">SendGrid REST API</option>
-                                <option value="mailgun">Mailgun REST API</option>
-                                <option value="mailjet">Mailjet REST API</option>
-                                <option value="postmark">Postmark REST API</option>
-                                <option value="mailersend">MailerSend REST API</option>
-                                <option value="mailtrap">Mailtrap Sandbox API</option>
-                                <option value="zoho">ZeptoMail (Zoho API)</option>
-                                <option value="netcore">Pepipost (Netcore API)</option>
+                                <optgroup label="API providers — Recommended">
+                                    <option value="sendgrid">SendGrid ★ Recommended</option>
+                                    <option value="resend">Resend ★ Recommended</option>
+                                    <option value="amazon_ses">Amazon SES ★ Recommended</option>
+                                    <option value="brevo">Brevo</option>
+                                    <option value="mailgun">Mailgun</option>
+                                    <option value="mailjet">Mailjet</option>
+                                    <option value="postmark">Postmark</option>
+                                    <option value="mailersend">MailerSend</option>
+                                    <option value="zoho">ZeptoMail (Zoho)</option>
+                                    <option value="netcore">Pepipost (Netcore)</option>
+                                    <option value="mailtrap">Mailtrap (testing sandbox)</option>
+                                </optgroup>
+                                <optgroup label="Advanced — not recommended">
+                                    <option value="smtp">Shared-host SMTP (not recommended)</option>
+                                    <option value="sendpulse">SendPulse SMTP</option>
+                                    <option value="custom_smtp">Custom SMTP</option>
+                                    <option value="zoho_smtp">Zoho SMTP</option>
+                                    <option value="netcore_smtp">Netcore SMTP</option>
+                                </optgroup>
                             </select>
+                            <p class="text-[9px] text-slate-500">Emails go out through <em>your</em> provider account, on <em>your</em> domain. This software provides no sending infrastructure and makes no inbox-placement promises.</p>
                         </div>
 
                         <!-- Resend in Tier 1 -->
@@ -602,8 +617,17 @@ require_once __DIR__ . '/includes/autoload.php';
                             <input type="password" id="setting-netcore_api_key" placeholder="API Key" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
                         </div>
 
-                        <!-- Standard SMTP in Tier 1 -->
+                        <!-- Shared-host SMTP: Advanced — not recommended -->
                         <div id="email-group-smtp" class="email-provider-fields space-y-4">
+                            <div class="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                                <p class="text-[11px] font-bold text-amber-400 uppercase tracking-wider">Advanced — not recommended</p>
+                                <p class="text-[10px] text-slate-400 mt-1 leading-relaxed">
+                                    Mail sent this way leaves from your shared host's IP. Shared-hosting IP
+                                    reputation is outside our control — expect worse deliverability than a
+                                    dedicated sending provider on your own account. Suitable only for testing
+                                    or very low volume. This software makes no inbox-placement promises.
+                                </p>
+                            </div>
                             <div class="grid grid-cols-3 gap-3">
                                 <div class="col-span-2 space-y-1.5">
                                     <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">SMTP Host</label>
@@ -784,6 +808,40 @@ require_once __DIR__ . '/includes/autoload.php';
                 </div>
             </div>
         </div>
+
+        <div id="diagnostics-tab" class="tab-content hidden glass p-8 rounded-3xl max-w-5xl mx-auto border border-white/5">
+            <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">🩺 System Diagnostics</h2>
+                    <p class="text-slate-500 text-sm">One-click health check. Fix what you can, then paste the report below when you ask for help.</p>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="loadDiagnostics()" class="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-500/20 text-sm font-bold">🔄 Re-run checks</button>
+                    <button onclick="copyDiagnosticsReport()" class="px-4 py-2.5 rounded-xl bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/20 text-emerald-400 hover:text-emerald-300 transition text-sm font-bold">📋 Copy report</button>
+                </div>
+            </div>
+
+            <div id="diagnostics-results" class="space-y-4">
+                <div class="p-8 text-center text-slate-500">Running checks…</div>
+            </div>
+
+            <div class="mt-8">
+                <h3 class="text-sm font-bold text-slate-300 mb-2">Paste-ready report</h3>
+                <p class="text-slate-500 text-xs mb-3">Copy this into your forum post when you ask for help. It contains no passwords or API keys.</p>
+                <textarea id="diagnostics-report" readonly rows="14" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-3 text-xs text-slate-300 font-mono outline-none resize-y"></textarea>
+            </div>
+
+            <!-- Support boundaries -->
+            <div class="mt-8 p-6 rounded-2xl bg-amber-500/[0.04] border border-amber-500/20">
+                <h3 class="text-sm font-bold text-amber-300 mb-2">📣 Getting help</h3>
+                <ul class="text-slate-400 text-sm space-y-1.5 list-disc list-inside">
+                    <li>Support for this product is the <strong class="text-slate-200">community forum only</strong> — there is no helpdesk ticket queue.</li>
+                    <li>Response times are <strong class="text-slate-200">not guaranteed</strong>. Community members and the developer answer when they can.</li>
+                    <li>When you post, <strong class="text-slate-200">always paste the diagnostics report above</strong> — posts without it take much longer to get a useful answer.</li>
+                    <li>Never post your <strong class="text-slate-200">API keys, passwords, or license key</strong> — this report never includes them; keep it that way.</li>
+                </ul>
+            </div>
+        </div>
     </main>
 
     <div id="modal-container" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden z-[100] flex items-center justify-center p-4"></div>
@@ -795,7 +853,7 @@ require_once __DIR__ . '/includes/autoload.php';
             // Parse initial tab from query parameter
             const urlParams = new URLSearchParams(window.location.search);
             let tab = urlParams.get('tab');
-            if (!tab || !['leads', 'campaigns', 'settings', 'agent', 'influencer', 'mass'].includes(tab)) {
+            if (!tab || !['leads', 'campaigns', 'settings', 'diagnostics', 'agent', 'influencer', 'mass'].includes(tab)) {
                 tab = 'leads';
             }
             showTab(tab);

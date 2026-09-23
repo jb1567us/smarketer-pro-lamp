@@ -32,6 +32,29 @@ function campaigns_error(int $code, string $msg): void {
     exit;
 }
 
+/**
+ * Honest pre-send notice (Fix 1: provider-first sending, no deliverability
+ * promises). Confirms which provider/account will send when a campaign is
+ * launched or resumed. Values are read from settings at call time.
+ */
+function campaign_send_notice(): array {
+    $provider = strtolower(trim((string)(\App\Database::getSetting('active_email_provider', 'smtp') ?: 'smtp')));
+    $sender   = (string)(\App\Database::getSetting('email_sender', '') ?: '');
+
+    // "Configured" = credentials stored for this provider. Never returned,
+    // only a boolean: secrets stay out of API responses.
+    $configured = false;
+    if (in_array($provider, \App\SendNotice::API_PROVIDERS, true)) {
+        $configured = (string)(\App\Database::getSetting("{$provider}_api_key", '') ?: '') !== '';
+    } elseif (in_array($provider, \App\SendNotice::SMTP_PROVIDERS, true)) {
+        $pass = (string)(\App\Database::getSetting("{$provider}_smtp_pass", '') ?: '');
+        $pass = $pass !== '' ? $pass : (string)(\App\Database::getSetting('smtp_pass', '') ?: '');
+        $configured = $pass !== '';
+    }
+
+    return \App\SendNotice::build($provider, $sender, $configured);
+}
+
 try {
     if ($type === 'campaigns') {
         if ($method === 'GET') {
@@ -92,7 +115,10 @@ try {
                 );
                 $stmt->execute([$id]);
                 if ($stmt->rowCount() === 0) campaigns_error(404, 'Campaign not found');
-                echo json_encode(['success' => true, 'id' => $id, 'status' => 'active']);
+                echo json_encode([
+                    'success' => true, 'id' => $id, 'status' => 'active',
+                    'send_notice' => campaign_send_notice(),
+                ]);
                 exit;
             }
 
@@ -134,6 +160,10 @@ try {
                 $resp = ['success' => true, 'id' => $id, 'is_active' => (bool)$row['is_active']];
                 if ($preflight !== null) {
                     $resp['dns_preflight'] = $preflight;
+                }
+                if ((bool)$row['is_active']) {
+                    // Activating = launch: attach the honest pre-send notice.
+                    $resp['send_notice'] = campaign_send_notice();
                 }
                 echo json_encode($resp);
                 exit;
