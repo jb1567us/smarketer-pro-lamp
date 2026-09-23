@@ -6,6 +6,9 @@
  */
 declare(strict_types=1);
 
+// PDO polyfill for shared hosts without the pdo_mysql extension.
+require_once __DIR__ . '/pdo_shim.php';
+
 function ls_json_response(array $data, int $httpCode = 200): void
 {
     http_response_code($httpCode);
