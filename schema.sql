@@ -94,7 +94,9 @@ INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
 ('vercel_bridge_url', ''),
 ('scrapingant_api_key', ''),
 ('searxng_url', 'http://localhost:8080/search'),
-('active_search_provider', 'searxng');
+('active_search_provider', 'searxng'),
+-- Soft phone-home license lock: empty URL = licensing disabled entirely.
+('license_server_url', '');
 
 -- Influencers: Social media candidates
 CREATE TABLE IF NOT EXISTS influencers (

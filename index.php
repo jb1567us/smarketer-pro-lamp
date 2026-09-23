@@ -471,6 +471,29 @@ require_once __DIR__ . '/includes/autoload.php';
                             <p class="text-[9px] text-slate-500">Safe default for leads with no recorded country. Leads with express consent are never blocked by an unknown country.</p>
                         </div>
 
+                        <!-- License (soft phone-home lock) -->
+                        <div class="space-y-1.5 p-4 rounded-xl bg-white/[0.02] border border-white/5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">🔑 License</label>
+                            <div id="license-status" class="text-xs text-slate-400">Loading license status…</div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+                                <div>
+                                    <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">License server URL</label>
+                                    <input type="text" id="setting-license_server_url" placeholder="https://license.example.com/api" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                                </div>
+                                <div>
+                                    <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">License key</label>
+                                    <input type="text" id="setting-license_key" placeholder="SMP-XXXX-XXXX-XXXX" autocomplete="off" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                                </div>
+                            </div>
+                            <p class="text-[9px] text-slate-500">Optional — the app works fully without a license. Save first, then use the buttons below. Moving the license server later is just a URL change here.</p>
+                            <div class="flex flex-wrap gap-2 mt-2">
+                                <button type="button" onclick="licenseAction('register')" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-[11px] font-bold text-white transition">Activate this domain</button>
+                                <button type="button" onclick="licenseAction('validate')" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-bold text-white transition">Re-validate now</button>
+                                <button type="button" onclick="licenseAction('release')" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-bold text-white transition">Release this domain</button>
+                            </div>
+                            <p class="text-[9px] text-slate-500 mt-1">“Release this domain” frees the slot yourself when moving hosts — no support ticket needed.</p>
+                        </div>
+
                         <!-- Active Email Provider selector -->
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Outreach Method</label>

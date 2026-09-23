@@ -1425,11 +1425,80 @@ async function fetchSettings() {
 
             // Trigger quota monitor dashboard refresh
             fetchQuotaUsage();
+            // License status panel
+            refreshLicenseStatus();
         }
     } catch (e) {
         console.warn('Failed to fetch settings');
     }
 }
+
+// ── License (soft phone-home lock) ─────────────────────────────────────
+async function refreshLicenseStatus() {
+    const box = document.getElementById('license-status');
+    if (!box) return;
+    try {
+        const r = await fetch('api/license.php?action=status');
+        const j = await r.json();
+        if (!j.success) { box.textContent = 'Could not load license status.'; return; }
+        const d = j.data;
+        const colors = { 'Licensed': 'text-emerald-400', 'Revoked': 'text-rose-400', 'Unlicensed': 'text-slate-400', 'Key issue': 'text-amber-400', 'Server unreachable': 'text-amber-400', 'Unknown': 'text-slate-500' };
+        const color = colors[d.label] || 'text-slate-400';
+        let html = `<span class="font-bold ${color}">${escapeHtml(d.label)}</span>`;
+        if (d.detail) html += ` <span class="text-slate-500">— ${escapeHtml(d.detail)}</span>`;
+        const bits = [];
+        if (d.domain) bits.push('domain: ' + d.domain);
+        if (d.max_domains > 0) bits.push(`${d.domains.length}/${d.max_domains} slots used`);
+        if (d.checked_at) bits.push('checked ' + new Date(d.checked_at * 1000).toLocaleString());
+        if (d.grace_expired) bits.push('<span class="text-amber-400 font-bold">grace period expired — still fully working</span>');
+        if (!d.sending_allowed) bits.push('<span class="text-rose-400 font-bold">sending paused (revoked)</span>');
+        if (bits.length) html += `<div class="text-[10px] text-slate-500 mt-1">${bits.join(' · ')}</div>`;
+        box.innerHTML = html;
+    } catch (e) {
+        box.textContent = 'Could not load license status.';
+    }
+}
+
+async function licenseAction(action) {
+    const box = document.getElementById('license-status');
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    try {
+        if (box) box.textContent = 'Working…';
+        const body = new URLSearchParams();
+        body.append('action', action);
+        body.append('csrf_token', csrfToken);
+        if (action === 'register') {
+            const keyEl = document.getElementById('setting-license_key');
+            const key = (keyEl?.value || '').trim();
+            if (!key) { alert('Enter a license key first (and Save).'); if (box) refreshLicenseStatus(); return; }
+            body.append('key', key);
+        }
+        if (action === 'release' && !confirm('Release this domain\u2019s license slot? You can re-register afterwards.')) {
+            refreshLicenseStatus(); return;
+        }
+        const r = await fetch('api/license.php', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': csrfToken },
+            body
+        });
+        const j = await r.json();
+        if (j.success) {
+            if (j.message) alert(j.message);
+            else if (j.detail) alert(j.detail);
+        } else {
+            alert('Error: ' + (j.error || j.message || 'unknown'));
+        }
+    } catch (e) {
+        alert('License action failed — please try again.');
+    }
+    refreshLicenseStatus();
+    if (typeof fetchSettings === 'function') fetchSettings();
+}
+
+function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// ── /License ─────────────────────────────────────────────────────────────
 
 async function saveSettings() {
     const keys = [
@@ -1446,7 +1515,8 @@ async function saveSettings() {
         'resend_api_key', 'brevo_api_key', 'sendgrid_api_key', 'mailgun_api_key', 'mailjet_api_key', 
         'postmark_api_key', 'mailersend_api_key', 'mailtrap_api_key', 'zoho_api_key', 'netcore_api_key',
         'sendpulse_smtp_pass', 'amazon_ses_smtp_pass', 'zoho_smtp_pass', 'netcore_smtp_pass',
-        'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url'
+        'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url',
+        'license_server_url', 'license_key'
     ];
     const settings = {};
     keys.forEach(k => {
