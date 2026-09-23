@@ -1,0 +1,3 @@
+[22-May-2026 23:26:30 UTC] PHP Warning:  Undefined array key "totalfitnessusa" in /home/lookoverhere/public_html/b2b_outreach_lamp/scratch/test_discover.php on line 59
+[22-May-2026 23:26:30 UTC] PHP Warning:  Trying to access array offset on value of type null in /home/lookoverhere/public_html/b2b_outreach_lamp/scratch/test_discover.php on line 60
+[22-May-2026 23:26:30 UTC] PHP Warning:  Trying to access array offset on value of type null in /home/lookoverhere/public_html/b2b_outreach_lamp/scratch/test_discover.php on line 62

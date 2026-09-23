@@ -1,0 +1,12 @@
+use_default_settings: true
+server:
+  bind_address: "0.0.0.0"
+  port: 8080
+  secret_key: "smarketer_pro_secure_random_key_998877"
+  limiter: false
+search:
+  safe_search: 0
+  autocomplete: "google"
+  formats:
+    - html
+    - json

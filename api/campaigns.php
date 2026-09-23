@@ -1,0 +1,150 @@
+<?php
+/**
+ * Campaigns & Templates API
+ *
+ * Actions (all require auth via \App\Auth::requireApiAuth):
+ *   GET  api/campaigns.php?type=campaigns                    list campaigns
+ *   POST api/campaigns.php?type=campaigns                    create {name, description}
+ *   POST api/campaigns.php?type=campaigns&action=update     update {id, name, description}
+ *   POST api/campaigns.php?type=campaigns&action=delete     delete {id}
+ *   POST api/campaigns.php?type=campaigns&action=toggle     toggle active {id}
+ *   GET  api/campaigns.php?type=templates&campaign_id=ID     list templates
+ *   POST api/campaigns.php?type=templates                    create {campaign_id, subject, body, step_order}
+ *   POST api/campaigns.php?type=templates&action=update     update {id, subject, body, step_order}
+ *   POST api/campaigns.php?type=templates&action=delete     delete {id}
+ */
+header('Content-Type: application/json');
+require_once __DIR__ . '/../includes/autoload.php';
+\App\Auth::requireApiAuth();
+$pdo = \App\Database::getConnection();
+
+$type   = $_GET['type'] ?? 'campaigns';
+$action = $_GET['action'] ?? null;
+$method = $_SERVER['REQUEST_METHOD'];
+
+function campaigns_error(int $code, string $msg): void {
+    http_response_code($code);
+    echo json_encode(['success' => false, 'error' => $msg]);
+    exit;
+}
+
+try {
+    if ($type === 'campaigns') {
+        if ($method === 'GET') {
+            $stmt = $pdo->query("SELECT * FROM campaigns ORDER BY created_at DESC");
+            $data = $stmt->fetchAll();
+            echo json_encode([
+                'success' => true,
+                'data'    => $data,
+                'meta'    => ['count' => count($data)],
+            ]);
+            exit;
+        }
+
+        if ($method === 'POST') {
+            $data = json_decode(file_get_contents('php://input'), true) ?? [];
+
+            if ($action === 'update') {
+                $id   = (int)($data['id'] ?? 0);
+                $name = trim($data['name'] ?? '');
+                if ($id <= 0 || $name === '') campaigns_error(400, 'Missing id or name');
+                $stmt = $pdo->prepare("UPDATE campaigns SET name = ?, description = ? WHERE id = ?");
+                $stmt->execute([$name, $data['description'] ?? '', $id]);
+                echo json_encode(['success' => true, 'id' => $id]);
+                exit;
+            }
+
+            if ($action === 'delete') {
+                $id = (int)($data['id'] ?? 0);
+                if ($id <= 0) campaigns_error(400, 'Missing id');
+                $stmt = $pdo->prepare("DELETE FROM campaigns WHERE id = ?");
+                $stmt->execute([$id]);
+                if ($stmt->rowCount() === 0) campaigns_error(404, 'Campaign not found');
+                echo json_encode(['success' => true, 'id' => $id]);
+                exit;
+            }
+
+            if ($action === 'toggle') {
+                $id = (int)($data['id'] ?? 0);
+                if ($id <= 0) campaigns_error(400, 'Missing id');
+                $stmt = $pdo->prepare("UPDATE campaigns SET is_active = NOT is_active WHERE id = ?");
+                $stmt->execute([$id]);
+                $stmt = $pdo->prepare("SELECT is_active FROM campaigns WHERE id = ?");
+                $stmt->execute([$id]);
+                $row = $stmt->fetch();
+                if (!$row) campaigns_error(404, 'Campaign not found');
+                echo json_encode(['success' => true, 'id' => $id, 'is_active' => (bool)$row['is_active']]);
+                exit;
+            }
+
+            // Create
+            $name = trim($data['name'] ?? '');
+            if ($name === '') campaigns_error(400, 'Campaign name is required');
+            $stmt = $pdo->prepare("INSERT INTO campaigns (name, description) VALUES (?, ?)");
+            $stmt->execute([$name, $data['description'] ?? '']);
+            echo json_encode([
+                'success' => true,
+                'data'    => ['id' => $pdo->lastInsertId()],
+                'meta'    => ['timestamp' => date('c')],
+            ]);
+            exit;
+        }
+    } elseif ($type === 'templates') {
+        if ($method === 'GET') {
+            $campaign_id = (int)($_GET['campaign_id'] ?? 0);
+            $stmt = $pdo->prepare("SELECT * FROM templates WHERE campaign_id = ? ORDER BY step_order ASC");
+            $stmt->execute([$campaign_id]);
+            $data = $stmt->fetchAll();
+            echo json_encode([
+                'success' => true,
+                'data'    => $data,
+                'meta'    => ['count' => count($data)],
+            ]);
+            exit;
+        }
+
+        if ($method === 'POST') {
+            $data = json_decode(file_get_contents('php://input'), true) ?? [];
+
+            if ($action === 'update') {
+                $id      = (int)($data['id'] ?? 0);
+                $subject = trim($data['subject'] ?? '');
+                if ($id <= 0 || $subject === '') campaigns_error(400, 'Missing id or subject');
+                $stmt = $pdo->prepare("UPDATE templates SET subject = ?, body = ?, step_order = ? WHERE id = ?");
+                $stmt->execute([$subject, $data['body'] ?? '', (int)($data['step_order'] ?? 1), $id]);
+                echo json_encode(['success' => true, 'id' => $id]);
+                exit;
+            }
+
+            if ($action === 'delete') {
+                $id = (int)($data['id'] ?? 0);
+                if ($id <= 0) campaigns_error(400, 'Missing id');
+                $stmt = $pdo->prepare("DELETE FROM templates WHERE id = ?");
+                $stmt->execute([$id]);
+                if ($stmt->rowCount() === 0) campaigns_error(404, 'Template not found');
+                echo json_encode(['success' => true, 'id' => $id]);
+                exit;
+            }
+
+            // Create
+            $stmt = $pdo->prepare("INSERT INTO templates (campaign_id, subject, body, step_order) VALUES (?, ?, ?, ?)");
+            $stmt->execute([
+                (int)($data['campaign_id'] ?? 0),
+                $data['subject'] ?? '',
+                $data['body'] ?? '',
+                (int)($data['step_order'] ?? 1),
+            ]);
+            echo json_encode([
+                'success' => true,
+                'data'    => ['id' => $pdo->lastInsertId()],
+                'meta'    => ['timestamp' => date('c')],
+            ]);
+            exit;
+        }
+    }
+
+    campaigns_error(405, 'Method not allowed');
+} catch (Exception $e) {
+    error_log('campaigns api error: ' . $e->getMessage());
+    campaigns_error(500, 'Server error');
+}
