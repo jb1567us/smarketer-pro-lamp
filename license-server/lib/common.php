@@ -77,7 +77,8 @@ function ls_normalize_domain(string $input): string
         $d = substr($d, (int)strrpos($d, '@') + 1);
     }
     // Strip path / query / fragment.
-    $d = preg_split('#[/?#]#', $d, 2)[0];
+    // Strip path / query / fragment (first token before /, ?, or #).
+    $d = (string)strtok($d, '/?#');
     // Strip port.
     $d = preg_replace('#:\d+$#', '', $d);
     $d = rtrim(trim($d), '.');

@@ -91,7 +91,8 @@ class Licensing
         if (strpos($d, '@') !== false) {
             $d = substr($d, (int)strrpos($d, '@') + 1);
         }
-        $d = preg_split('#[/?#]#', $d, 2)[0];
+        // Strip path / query / fragment (first token before /, ?, or #).
+        $d = (string)strtok($d, '/?#');
         $d = preg_replace('#:\d+$#', '', $d);
         $d = rtrim(trim($d), '.');
         if (str_starts_with($d, 'www.')) {
