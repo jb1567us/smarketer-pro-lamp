@@ -298,10 +298,11 @@ class SimpleHarvester {
             
             if (!empty($leadPersona)) {
                 $notes .= "\nTarget Persona: " . $leadPersona;
-                $contactName = $leadPersona;
-            } else {
-                $contactName = '';
             }
+            // Item 9: harvested search results carry no parsed person name,
+            // so contact_name stays NULL. User-entered persona text goes to
+            // target_persona only — never to contact_name.
+            $contactName = null;
 
             // Insert lead
             $targetPersona = !empty($leadPersona) ? $leadPersona : null;

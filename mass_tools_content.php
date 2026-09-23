@@ -687,7 +687,8 @@
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
                     company_name: companyName,
-                    contact_name: leadPersona || 'Prospect Lead',
+                    contact_name: '', // Item 9: no parsed person name here — persona goes to target_persona, contact_name stays empty
+                    target_persona: leadPersona || '',
                     email: finalEmail,
                     website: item.url,
                     source: 'Search Harvester',

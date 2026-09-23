@@ -146,6 +146,11 @@ try {
     expectThrow(fn() => \App\EmailSender::send('pending_abc@placeholder.com', 's', 'b', 'resend', 'k', 'news@example.com'),
         'placeholder', 'placeholder guard still fires first');
 
+    // --- Persona/name routing (item 9; DB-independent) ---------------------
+    echo "persona/name:\n";
+    require_once $repo . '/tests/compliance/PersonaNameTest.php';
+    persona_name_tests('ok');
+
     echo "\n{$passed} passed, {$failures} failed\n";
     if ($failures > 0) { exit(1); }
 } finally {

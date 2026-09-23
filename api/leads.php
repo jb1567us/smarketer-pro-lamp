@@ -93,13 +93,29 @@ try {
         if ($action === 'update') {
             $id = (int)($input['id'] ?? 0);
             if ($id <= 0) leads_error(400, 'Missing lead id');
-            $allowed = ['company_name', 'contact_name', 'email', 'website', 'status', 'notes', 'lead_score', 'source'];
+
+            // Item 9: never store persona text in contact_name. When the caller
+            // sets contact_name, route the value through the name/persona
+            // mapper; persona-ish text is rescued into target_persona.
+            if (array_key_exists('contact_name', $input)) {
+                $personaWasProvided = array_key_exists('target_persona', $input);
+                [$mappedName, $mappedPersona] = \App\LeadFields::mapContactAndPersona(
+                    $input['contact_name'],
+                    $input['target_persona'] ?? null
+                );
+                $input['contact_name'] = $mappedName;
+                if ($personaWasProvided || $mappedPersona !== null) {
+                    $input['target_persona'] = $mappedPersona;
+                }
+            }
+
+            $allowed = ['company_name', 'contact_name', 'email', 'website', 'status', 'notes', 'lead_score', 'source', 'target_persona'];
             $set = [];
             $vals = [];
             foreach ($allowed as $col) {
                 if (array_key_exists($col, $input)) {
-                    $set[] = "{$col} = ?";
                     $vals[] = $input[$col];
+                    $set[] = "{$col} = ?";
                 }
             }
             if (!$set) leads_error(400, 'Nothing to update');
@@ -150,13 +166,20 @@ try {
         if (empty($input['email']) || empty($input['company_name'])) {
             leads_error(400, 'Missing required fields');
         }
-        $stmt = $pdo->prepare("INSERT INTO leads (company_name, contact_name, email, website, source) VALUES (?, ?, ?, ?, ?)");
+        // Item 9: persona text goes to target_persona only; contact_name is set
+        // solely from an actual person name, else NULL.
+        [$contactName, $targetPersona] = \App\LeadFields::mapContactAndPersona(
+            $input['contact_name'] ?? null,
+            $input['target_persona'] ?? null
+        );
+        $stmt = $pdo->prepare("INSERT INTO leads (company_name, contact_name, email, website, source, target_persona) VALUES (?, ?, ?, ?, ?, ?)");
         $stmt->execute([
             $input['company_name'],
-            $input['contact_name'] ?? '',
+            $contactName,
             $input['email'],
             $input['website'] ?? '',
             $input['source'] ?? 'API',
+            $targetPersona,
         ]);
         echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
         exit;
