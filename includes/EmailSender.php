@@ -44,16 +44,18 @@ class EmailSender
             throw new Exception("Refusing to send to placeholder address: {$to}");
         }
 
-        // Compliance choke point: suppression list, mandatory sender identity,
-        // and the CASL harvest gate. Throws on any violation.
+        // Guardrail choke point: suppression list, mandatory sender identity,
+        // and the CASL harvest gate. Throws when a send would put the
+        // buyer's provider account at risk.
         Compliance::requireCompliantSend($to);
 
-        // Mandatory identity footer (CAN-SPAM): legal name + postal address
-        // + one-click unsubscribe on every message, all providers.
+        // Identity footer: legal name + postal address + one-click
+        // unsubscribe on every message, all providers. Mail without a real
+        // sender identity is what gets flagged as spam.
         $body = Compliance::appendFooter($body, $to);
 
         if (empty($senderEmail)) {
-            throw new Exception("Authorized Sender Address is required to satisfy SPF/DKIM compliance");
+            throw new Exception("Authorized Sender Address is required so providers can authenticate your mail (SPF/DKIM) — sends without it fail or get flagged as spoofed.");
         }
 
         $providerLower = strtolower($provider);
@@ -652,8 +654,8 @@ class EmailSender
                 "Date: " . date('r'),
                 "X-Mailer: PHP/SmarketerProOutboundSocket"
             ];
-            // One-click unsubscribe headers (RFC 2369 / RFC 8058) — required
-            // for bulk mail at Gmail/Yahoo and expected by CAN-SPAM practice.
+            // One-click unsubscribe headers (RFC 2369 / RFC 8058) — Gmail/Yahoo
+            // penalize bulk mail without them, so missing headers cost you inbox placement.
             foreach (Compliance::listUnsubscribeHeaders($to, $senderEmail) as $h) {
                 $headers[] = $h;
             }

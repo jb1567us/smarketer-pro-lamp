@@ -484,6 +484,7 @@ function showNewCampaignModal() {
     container.innerHTML = `
         <div class="glass p-8 rounded-2xl w-full max-w-md">
             <h3 class="text-2xl font-bold mb-4">Create Campaign</h3>
+            <p class="text-xs text-slate-500 mb-4 leading-relaxed">Campaigns send from your own accounts, and you are the data controller: you are liable for your own sending practices. Nothing in this app makes a campaign's sending legal — the guardrails just reduce your risk of bans and account shutdowns.</p>
             <input type="text" id="new-campaign-name" placeholder="Campaign Name" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 mb-4">
             <textarea id="new-campaign-desc" placeholder="Description" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 mb-4"></textarea>
             <div class="flex gap-4">
@@ -982,6 +983,7 @@ function showImportLeadsModal() {
                 <button onclick="submitImportLeads()" class="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-blue-500/20 text-white transition">Upload & Import</button>
                 <button onclick="closeModal()" class="flex-1 bg-slate-800 hover:bg-slate-700 py-2.5 rounded-xl text-sm font-bold text-slate-300 transition">Cancel</button>
             </div>
+            <p class="text-[10px] text-slate-500 mt-4 leading-relaxed">⚠️ Importing a list doesn't make it safe to mail: you are the data controller for these addresses and you are liable for how you obtained and use them. The built-in guardrails (suppression list, email verification gate, DNS preflight, rate monitors) protect your provider accounts from bans — they do not make your sending legal.</p>
         </div>
     `;
     container.classList.remove('hidden');
@@ -1059,8 +1061,9 @@ async function fetchStats() {
     }
 }
 
-/* Compliance item 4: visible dashboard notice for auto-paused campaigns.
- * Called from fetchStats() with api/stats.php's paused_campaigns list. */
+/* Auto-pause notice: the send monitor paused campaigns to protect the
+ * buyer's provider account. Called from fetchStats() with api/stats.php's
+ * paused_campaigns list. */
 function renderPauseBanner(paused) {
     const box = document.getElementById('pause-banner');
     if (!box) return;
@@ -1085,7 +1088,7 @@ function renderPauseBanner(paused) {
                 </h3>
             </div>
             <p class="text-xs text-rose-300/80 mb-2">
-                Complaint or bounce rate hit the safety threshold. Review the list/reputation issue, then resume manually.
+                Paused to protect your provider account from suspension: bounce or complaint rate crossed the safety threshold, and providers suspend accounts over exactly these signals. Find the cause before resuming — a bad list segment (check bounce/complaint entries in your email logs), failing sender authentication (run the DNS preflight when you restart the campaign), or a damaged sending domain. Resuming without fixing the cause burns more reputation.
             </p>
             ${rows}
         </div>`;

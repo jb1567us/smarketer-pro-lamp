@@ -7,7 +7,8 @@ namespace App;
 use App\Exceptions\OutreachException;
 
 /**
- * Compliance — CAN-SPAM / CASL / GDPR sending guardrails.
+ * Account-protection guardrails for outgoing mail (suppression, sender
+ * identity, CASL country gate, verification pre-checks).
  *
  * Single choke point: EmailSender::send() calls Compliance::requireCompliantSend()
  * before any provider path, so no email can leave the system without:
@@ -16,13 +17,16 @@ use App\Exceptions\OutreachException;
  *      footer is appended by the caller via Compliance::footer().
  *   3. CASL country gate: leads in Canada (leads.country_code = 'CA') without
  *      express consent are refused, as are unknown-country leads without
- *      express consent (CASL-safe default, admin-overridable). The master
+ *      express consent (safe default, admin-overridable). The master
  *      toggle can disable the gate; every allow/block decision is audited
  *      to casl_decisions.
  *
- * The buyer remains the data controller and is liable for their own sending
- * practices; this class makes non-compliant sending difficult and deliberate,
- * not one click.
+ * These are guardrails that reduce the buyer's business risk — fewer provider
+ * bans, a protected sender reputation, cleaner lists, less wasted spend —
+ * not a legal shield. The buyer remains the data controller and is liable
+ * for their own sending practices; nothing here makes anyone's sending
+ * legal. This class makes risky sends hard to fire off accidentally: every
+ * block is deliberate and audited, never one click.
  */
 class Compliance
 {
@@ -235,9 +239,10 @@ class Compliance
             return [
                 'decision' => 'block',
                 'rule' => 'ca_no_express_consent',
-                'message' => "Refusing to send to {$email}: Canada's CASL prohibits commercial email to harvested " .
-                    "addresses without express consent. Record express consent for this lead, or disable " .
-                    "'Block unconsented Canadian sends' in System Settings (you assume the legal risk).",
+                'message' => "Refusing to send to {$email}: no express consent on file for this Canadian lead " .
+                    "(CASL country gate). These are the sends providers flag first — record express consent for " .
+                    "this lead, or disable 'Block unconsented Canadian sends' in System Settings (your call; " .
+                    "you own the sending practices on this install).",
             ];
         }
 
@@ -258,8 +263,9 @@ class Compliance
             'decision' => 'block',
             'rule' => 'unknown_country_no_consent',
             'message' => "Refusing to send to {$email}: the recipient's country is unknown and this lead does not " .
-                "have express consent. Record the lead's country and consent, or set 'Unknown-country CASL " .
-                "handling' to Allow in System Settings (you assume the legal risk).",
+                "have express consent. Sending to unknown-country leads is how accounts get flagged — record the " .
+                "lead's country and consent, or set 'Unknown-country CASL handling' to Allow in System Settings " .
+                "(your call; you own the sending practices on this install).",
         ];
     }
 
@@ -328,8 +334,9 @@ class Compliance
     // ── /CASL country gate (item 8) ──
 
     /**
-     * Enforce every pre-send compliance rule. Throws on any violation —
-     * callers must not catch-and-continue past this.
+     * Enforce every pre-send guardrail. Throws when a send would put the
+     * buyer's provider account at risk — callers must not catch-and-continue
+     * past this.
      */
     public static function requireCompliantSend(string $to, ?array $lead = null): void
     {
@@ -362,7 +369,8 @@ class Compliance
         if ($legalName === '' || $postal === '') {
             throw new OutreachException(
                 'Refusing to send: sender identity is not configured. Set "Company legal name" and ' .
-                '"Physical postal address" in System Settings (required by CAN-SPAM for every commercial email).'
+                '"Physical postal address" in System Settings — providers flag or block commercial mail ' .
+                'without a real sender identity.'
             );
         }
 

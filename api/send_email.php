@@ -70,7 +70,7 @@ try {
     // Compliance pre-checks (fail fast with a clear, buyer-actionable error).
     // EmailSender::send() re-enforces these at the choke point as a backstop.
     if (\App\Compliance::isSuppressed($to)) {
-        throw new Exception("This address is on the suppression list (opt-out, bounce, or complaint) and cannot be mailed.");
+        throw new Exception("This address is on the suppression list (opt-out, bounce, or complaint) and won't be mailed. Re-mailing opt-outs and complainers is the fastest way to get a sending account suspended — the suppression list is protecting your account.");
     }
     // CASL is enforced AND audited at the EmailSender::send() choke point
     // (Compliance::requireCompliantSend → casl_decisions). No duplicate gate

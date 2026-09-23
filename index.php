@@ -438,13 +438,13 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Company Legal Name <span class="text-rose-400">* required for sending</span></label>
                             <input type="text" id="setting-company_legal_name" placeholder="Acme Corp LLC" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
-                            <p class="text-[9px] text-slate-500">Your registered business name. Appears in the footer of every email (CAN-SPAM requirement).</p>
+                            <p class="text-[9px] text-slate-500">Your registered business name. Appears in the footer of every email (required: commercial mail without a real sender identity gets filtered as spam).</p>
                         </div>
 
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Physical Postal Address <span class="text-rose-400">* required for sending</span></label>
                             <textarea id="setting-physical_address" rows="2" placeholder="123 Main St, Austin, TX 78701" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition"></textarea>
-                            <p class="text-[9px] text-slate-500">A valid physical address. PO boxes registered to you are acceptable. Sending is blocked until this is set.</p>
+                            <p class="text-[9px] text-slate-500">A valid physical address. PO boxes registered to you are acceptable. Sends are refused until this is set — mail with a blank sender identity is what gets accounts flagged.</p>
                         </div>
 
                         <div class="space-y-1.5">
@@ -457,16 +457,16 @@ require_once __DIR__ . '/includes/autoload.php';
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">CASL Country Gate (master)</label>
                             <select id="setting-compliance_casl_ca_block" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
                                 <option value="1">On — block unconsented CA / unknown-country sends (recommended)</option>
-                                <option value="0">Off — I accept the legal risk</option>
+                                <option value="0">Off — my risk, my responsibility</option>
                             </select>
-                            <p class="text-[9px] text-slate-500">Master switch for the CASL country gate. It keys off each lead's recorded country (not the .ca domain). Turning it off is logged as your decision.</p>
+                            <p class="text-[9px] text-slate-500">Master switch for the CASL country gate. It keys off each lead's recorded country (not the .ca domain). Turning it off is logged as your decision. You are the data controller for this install: you decide what gets sent, and you are liable for your own sending practices. These gates protect your accounts — they do not make your sending legal.</p>
                         </div>
 
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Unknown-Country CASL Handling</label>
                             <select id="setting-compliance_casl_unknown_country" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
                                 <option value="block">Block unknown-country leads without express consent (recommended)</option>
-                                <option value="allow">Allow — I accept the legal risk</option>
+                                <option value="allow">Allow — my risk, my responsibility</option>
                             </select>
                             <p class="text-[9px] text-slate-500">Safe default for leads with no recorded country. Leads with express consent are never blocked by an unknown country.</p>
                         </div>
