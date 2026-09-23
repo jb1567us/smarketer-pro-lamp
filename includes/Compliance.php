@@ -335,6 +335,22 @@ class Compliance
     {
         $to = trim($to);
 
+        // ── License gate (soft lock) ─────────────────────────────────────
+        // The ONLY hard licensing consequence: an explicitly REVOKED key
+        // (seller-side refund/chargeback) pauses sending. Unlicensed,
+        // unreachable, mistyped, or grace-expired installs NEVER block —
+        // see \App\Licensing::decideSending(). Dashboard, leads, campaigns,
+        // and settings keep working regardless.
+        if (!\App\Licensing::sendingAllowed()) {
+            throw new OutreachException(
+                'Refusing to send: this license key has been revoked. ' .
+                'Sending is paused; the rest of the app keeps working. ' .
+                'If you believe this is a mistake, contact support — sending ' .
+                'resumes automatically once the key is valid again.'
+            );
+        }
+        // ── /License gate ────────────────────────────────────────────────
+
         if (self::isSuppressed($to)) {
             throw new OutreachException(
                 "Refusing to send: {$to} is on the suppression list (opt-out, bounce, or complaint)."

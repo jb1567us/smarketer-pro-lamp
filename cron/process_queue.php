@@ -88,6 +88,16 @@ try {
     } catch (\Throwable $e) {
         echo "[WARN] Compliance monitor failed (queue continues): " . $e->getMessage() . "\n";
     }
+    // --- License soft-lock: daily re-validation (never fatal) -------------
+    // Runs at most once per 24h (sooner for revoked keys, so un-revoking
+    // restores sending promptly). Any failure is swallowed: the queue must
+    // never die because of licensing.
+    try {
+        \App\Licensing::dailyCheck();
+    } catch (\Throwable $e) {
+        echo "[WARN] License check failed (queue continues): " . $e->getMessage() . "\n";
+    }
+
     $activeProvider = (string)($throttles->getStore()->getSetting('active_email_provider', 'smtp') ?: 'smtp');
 
     // Fetch pending tasks (task_type + payload are needed for the throttle gate)

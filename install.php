@@ -30,6 +30,7 @@ if (is_file($lockFile)) {
 }
 
 $errors = [];
+$licenseNotice = null;
 $step = 'checks';
 
 // --- Pre-flight checks -------------------------------------------------
@@ -128,7 +129,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['db_host'])) {
             file_put_contents($configDir . '/.htaccess', "Require all denied\n", LOCK_EX);
             file_put_contents($configDir . '/index.html', '', LOCK_EX);
 
-            // 5. Lock the installer.
+            // 5. Optional license registration (SOFT — never blocks install).
+            // The schema is imported by now, so the settings table exists.
+            $licServerUrl = trim($_POST['license_server_url'] ?? '');
+            $licKey = trim($_POST['license_key'] ?? '');
+            try {
+                if ($licServerUrl !== '') {
+                    $licStmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('license_server_url', ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
+                    $licStmt->execute([$licServerUrl]);
+                }
+                if ($licKey !== '') {
+                    $verdict = \App\Licensing::registerNow($licKey);
+                    $licenseNotice = $verdict['detail'] !== '' ? $verdict['detail'] : ('License status: ' . $verdict['status']);
+                }
+            } catch (\Throwable $e) {
+                // Soft by design: licensing problems are notices, never errors.
+                $licenseNotice = 'License check skipped (' . $e->getMessage() . ') — install continues normally.';
+            }
+
+            // 6. Lock the installer.
             file_put_contents($lockFile, gmdate('c'), LOCK_EX);
             $step = 'done';
         } catch (\Throwable $e) {
@@ -190,11 +209,17 @@ ol{color:#94a3b8;font-size:.9rem;line-height:1.7}
     <input id="db_user" name="db_user" required value="<?= htmlspecialchars($_POST['db_user'] ?? '') ?>" placeholder="e.g. myuser_b2b">
     <label for="db_pass">Database password</label>
     <input id="db_pass" type="password" name="db_pass" autocomplete="new-password">
+    <label for="license_server_url">License server URL <span style="font-size:.75rem">(optional)</span></label>
+    <input id="license_server_url" name="license_server_url" placeholder="https://license.example.com/api" value="<?= htmlspecialchars($_POST['license_server_url'] ?? '') ?>">
+    <label for="license_key">License key <span style="font-size:.75rem">(optional — the app works fully without one)</span></label>
+    <input id="license_key" name="license_key" placeholder="SMP-XXXX-XXXX-XXXX" value="<?= htmlspecialchars($_POST['license_key'] ?? '') ?>" autocomplete="off">
+    <p class="sub" style="margin:.6rem 0 0;font-size:.8rem">No key? Skip it — you can add one later in Settings → License. A wrong or unreachable license never blocks installation.</p>
     <button type="submit">Install database</button>
   </form>
 <?php else: ?>
   <h1>✅ Installed</h1>
   <p class="sub">Database is ready. Two steps left:</p>
+  <?php if ($licenseNotice): ?><div class="err" style="border-color:rgba(96,165,250,.35);background:rgba(59,130,246,.08);color:#bfdbfe"><?= htmlspecialchars($licenseNotice) ?></div><?php endif; ?>
   <ol>
     <li><strong>Cron job</strong> — in cPanel → Cron Jobs, add this to run <strong>every 5 minutes</strong>:
       <pre><?= htmlspecialchars($cronCommand) ?></pre>

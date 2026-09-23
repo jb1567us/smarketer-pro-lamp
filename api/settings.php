@@ -46,6 +46,8 @@ const SETTINGS_ALLOWLIST = [
     'throttle_defer_minutes',
     'monitor_complaint_rate_threshold', 'monitor_bounce_rate_threshold',
     'monitor_auto_pause', 'monitor_min_delivered',
+    // Soft phone-home license lock. license_key is secret (redacted on read).
+    'license_server_url', 'license_key',
 ];
 
 /**
@@ -70,7 +72,7 @@ function isAllowedSetting(string $key): bool
 
 /** Suffixes (plus explicit keys) treated as secrets: redacted on read. */
 const SETTINGS_SECRET_SUFFIXES = ['_api_key', '_api_token', '_pass', '_password', '_secret', '_token'];
-const SETTINGS_SECRET_EXPLICIT = ['proxy_socks_url'];
+const SETTINGS_SECRET_EXPLICIT = ['proxy_socks_url', 'license_key'];
 
 function isSecretSetting(string $key): bool
 {
