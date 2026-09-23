@@ -166,6 +166,29 @@ try {
     expectThrow(fn() => \App\EmailSender::send('pending_abc@placeholder.com', 's', 'b', 'resend', 'k', 'news@example.com'),
         'placeholder', 'placeholder guard still fires first');
 
+    // --- Verification funnel (FIX2): honest data-quality stages ------------
+    echo "funnel:\n";
+    $f0 = \App\FunnelStats::compute($pdo);
+    $pdo->exec("INSERT INTO leads (company_name, email, verification_status) VALUES
+        ('Funnel Valid A','funnel-valid-a@example.com','valid'),
+        ('Funnel Valid B','funnel-valid-b@example.com','valid'),
+        ('Funnel Invalid','funnel-invalid@example.com','invalid'),
+        ('Funnel Risky','funnel-risky@example.com','risky'),
+        ('Funnel Unknown','funnel-unknown@example.com','unknown')");
+    \App\Compliance::suppress('funnel-valid-b@example.com', 'unsubscribe', 'funnel-test');
+    \App\Compliance::suppress('funnel-unknown@example.com', 'bounce', 'funnel-test');
+    $f1 = \App\FunnelStats::compute($pdo);
+    ok($f1['harvested'] - $f0['harvested'] === 5, 'harvested counts every raw row');
+    ok($f1['verified_valid'] - $f0['verified_valid'] === 2, 'verified_valid counts only valid verdicts');
+    ok($f1['invalid'] - $f0['invalid'] === 1, 'invalid counted');
+    ok($f1['risky'] - $f0['risky'] === 1, 'risky counted');
+    ok($f1['unknown'] - $f0['unknown'] === 1, 'unknown = never actually verified');
+    ok($f1['checked'] - $f0['checked'] === 4, 'checked = valid + invalid + risky (excludes unknown)');
+    ok($f1['suppressed'] - $f0['suppressed'] === 2, 'suppressed counts suppression-list matches');
+    ok($f1['mailable'] - $f0['mailable'] === 1, 'mailable = verified valid AND not suppressed');
+    $f2 = \App\FunnelStats::compute($pdo);
+    ok($f2 === $f1, 'funnel stats are deterministic across calls');
+
     // --- Persona/name routing (item 9; DB-independent) ---------------------
     echo "persona/name:\n";
     require_once $repo . '/tests/compliance/PersonaNameTest.php';
