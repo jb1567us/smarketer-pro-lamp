@@ -99,10 +99,8 @@ class EmailSender
 
     /**
      * List-Unsubscribe headers as a key/value map for provider APIs.
-     * Providers not listed here (Brevo, Mailjet, Postmark, MailerSend,
-     * Mailtrap, ZeptoMail, Pepipost) still get the mandatory footer +
-     * suppression enforcement in send(); their native unsubscribe tooling
-     * is documented in the sending-stack guide.
+     * Providers whose JSON payload supports a 'headers' object (Resend,
+     * SendGrid) inject it directly; the rest go through withListUnsubscribe().
      */
     private static function listUnsubscribeHeaderMap(string $to, string $senderEmail): array
     {
@@ -117,6 +115,119 @@ class EmailSender
     }
 
     /**
+     * Inject List-Unsubscribe / List-Unsubscribe-Post into a provider payload
+     * using that provider's own custom-headers mechanism. Strictly additive:
+     * existing keys are never overwritten, only missing names are added, so
+     * calling it twice is a no-op (idempotent).
+     *
+     * Per-provider mechanism:
+     *   resend/sendgrid/brevo/mailtrap/netcore : payload['headers'] object map
+     *   mailersend : payload['headers'] = [{name, value}, ...]  (requires Pro/Enterprise plan)
+     *   zoho (ZeptoMail) : payload['mime_headers'] object map
+     *   postmark : payload['Headers'] = [{Name, Value}, ...]
+     *   mailjet : payload['Messages'][0]['Headers'] object map
+     *   mailgun : 'h:<Name>' form fields
+     *   smtp/* : raw MIME headers are written directly in sendSmtpSocket()
+     *            (already present), so the payload path is unused here.
+     */
+    private static function withListUnsubscribe(array $payload, string $provider, string $to, string $senderEmail): array
+    {
+        $map = self::listUnsubscribeHeaderMap($to, $senderEmail);
+        if ($map === []) {
+            return $payload;
+        }
+
+        return match (strtolower($provider)) {
+            // Top-level 'headers' object map (name => value)
+            'brevo', 'resend', 'sendgrid', 'mailtrap', 'netcore' =>
+                self::mergeHeaderObject($payload, 'headers', $map),
+            // ZeptoMail: 'mime_headers' object map
+            'zoho' => self::mergeHeaderObject($payload, 'mime_headers', $map),
+            // MailerSend: 'headers' array of {name, value}
+            'mailersend' => self::mergeNameValueList($payload, 'headers', $map, 'name', 'value'),
+            // Postmark: 'Headers' array of {Name, Value}
+            'postmark' => self::mergeNameValueList($payload, 'Headers', $map, 'Name', 'Value'),
+            // Mailjet v3.1: Messages[0].Headers object map
+            'mailjet' => self::mergeMailjetHeaders($payload, $map),
+            // Mailgun v3: custom MIME headers are 'h:<Name>' form fields
+            'mailgun' => self::mergeMailgunFields($payload, $map),
+            // Raw SMTP socket path (and unknown providers): no payload merge.
+            default => $payload,
+        };
+    }
+
+    /**
+     * Merge $map into $payload[$key] where $key holds a name => value object.
+     */
+    private static function mergeHeaderObject(array $payload, string $key, array $map): array
+    {
+        $existing = (isset($payload[$key]) && is_array($payload[$key])) ? $payload[$key] : [];
+        foreach ($map as $name => $value) {
+            if (!array_key_exists($name, $existing)) {
+                $existing[$name] = $value;
+            }
+        }
+        $payload[$key] = $existing;
+        return $payload;
+    }
+
+    /**
+     * Merge $map into $payload[$key] where $key holds a list of
+     * [$nameKey => name, $valueKey => value] entries.
+     */
+    private static function mergeNameValueList(array $payload, string $key, array $map, string $nameKey, string $valueKey): array
+    {
+        $existing = (isset($payload[$key]) && is_array($payload[$key])) ? $payload[$key] : [];
+        $have = [];
+        foreach ($existing as $entry) {
+            if (is_array($entry) && isset($entry[$nameKey]) && is_string($entry[$nameKey])) {
+                $have[strtolower($entry[$nameKey])] = true;
+            }
+        }
+        foreach ($map as $name => $value) {
+            if (!isset($have[strtolower($name)])) {
+                $existing[] = [$nameKey => $name, $valueKey => $value];
+            }
+        }
+        $payload[$key] = $existing;
+        return $payload;
+    }
+
+    /**
+     * Merge $map into the Mailjet v3.1 Messages[0].Headers object.
+     */
+    private static function mergeMailjetHeaders(array $payload, array $map): array
+    {
+        if (!isset($payload['Messages'][0]) || !is_array($payload['Messages'][0])) {
+            return $payload;
+        }
+        $existing = (isset($payload['Messages'][0]['Headers']) && is_array($payload['Messages'][0]['Headers']))
+            ? $payload['Messages'][0]['Headers']
+            : [];
+        foreach ($map as $name => $value) {
+            if (!array_key_exists($name, $existing)) {
+                $existing[$name] = $value;
+            }
+        }
+        $payload['Messages'][0]['Headers'] = $existing;
+        return $payload;
+    }
+
+    /**
+     * Merge $map into a Mailgun form payload as 'h:<Name>' fields.
+     */
+    private static function mergeMailgunFields(array $payload, array $map): array
+    {
+        foreach ($map as $name => $value) {
+            $key = 'h:' . $name;
+            if (!array_key_exists($key, $payload)) {
+                $payload[$key] = $value;
+            }
+        }
+        return $payload;
+    }
+
+    /**
      * Brevo API v3 Sender
      */
     private static function sendBrevo(string $to, string $subject, string $body, string $apiKey, string $senderEmail): bool
@@ -128,6 +239,8 @@ class EmailSender
             'subject' => $subject,
             'htmlContent' => $body
         ];
+        // Brevo v3: 'headers' object in the JSON payload
+        $payload = self::withListUnsubscribe($payload, 'brevo', $to, $senderEmail);
 
         $headers = [
             'api-key: ' . $apiKey,
@@ -185,6 +298,8 @@ class EmailSender
             'subject' => $subject,
             'html' => $body
         ];
+        // Mailgun v3: custom MIME headers are 'h:<Name>' form fields
+        $payload = self::withListUnsubscribe($payload, 'mailgun', $to, $senderEmail);
 
         $headers = [
             'Authorization: Basic ' . base64_encode('api:' . $apiKey)
@@ -215,6 +330,8 @@ class EmailSender
                 'HTMLPart' => $body
             ]]
         ];
+        // Mailjet v3.1: Messages[0].Headers object
+        $payload = self::withListUnsubscribe($payload, 'mailjet', $to, $senderEmail);
 
         $headers = [
             'Authorization: Basic ' . $auth,
@@ -237,6 +354,8 @@ class EmailSender
             'HtmlBody' => $body,
             'MessageStream' => 'outbound'
         ];
+        // Postmark: 'Headers' array of {Name, Value}
+        $payload = self::withListUnsubscribe($payload, 'postmark', $to, $senderEmail);
 
         $headers = [
             'X-Postmark-Server-Token: ' . $apiKey,
@@ -264,6 +383,8 @@ class EmailSender
             'subject' => $subject,
             'html' => $body
         ];
+        // MailerSend: 'headers' array of {name, value}
+        $payload = self::withListUnsubscribe($payload, 'mailersend', $to, $senderEmail);
 
         $headers = [
             'Authorization: Bearer ' . $apiKey,
@@ -290,6 +411,8 @@ class EmailSender
             'subject' => $subject,
             'html' => $body
         ];
+        // Mailtrap: 'headers' object in the payload
+        $payload = self::withListUnsubscribe($payload, 'mailtrap', $to, $senderEmail);
 
         $headers = [
             'Authorization: Bearer ' . $apiKey,
@@ -322,6 +445,8 @@ class EmailSender
             'subject' => $subject,
             'htmlbody' => $body
         ];
+        // ZeptoMail: 'mime_headers' object (name => value) in the payload
+        $payload = self::withListUnsubscribe($payload, 'zoho', $to, $senderEmail);
 
         $headers = [
             'Authorization: ' . $apiKey,
@@ -356,6 +481,8 @@ class EmailSender
                 ]
             ]
         ];
+        // Pepipost v5.1: 'headers' object in the payload
+        $payload = self::withListUnsubscribe($payload, 'netcore', $to, $senderEmail);
 
         $headers = [
             'api_key: ' . $apiKey,
