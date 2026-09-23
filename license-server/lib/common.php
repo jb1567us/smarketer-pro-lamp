@@ -29,29 +29,44 @@ function ls_read_json_body(): array
     return is_array($data) ? $data : [];
 }
 
-function ls_db(): PDO
+function ls_db()
 {
     static $pdo = null;
-    if ($pdo instanceof PDO) {
+    if ($pdo !== null) {
         return $pdo;
     }
+    // Mode 1 — standalone: local config.php with DB credentials.
     $cfgFile = dirname(__DIR__) . '/config.php';
-    if (!is_file($cfgFile)) {
-        ls_json_response(['valid' => false, 'reason' => 'server_misconfigured'], 500);
-    }
-    $cfg = require $cfgFile;
-    foreach (['host', 'name', 'user', 'pass'] as $k) {
-        if (!isset($cfg[$k])) {
-            ls_json_response(['valid' => false, 'reason' => 'server_misconfigured'], 500);
+    if (is_file($cfgFile)) {
+        $cfg = require $cfgFile;
+        $ok = is_array($cfg);
+        foreach (['host', 'name', 'user', 'pass'] as $k) {
+            if (!isset($cfg[$k])) { $ok = false; }
+        }
+        if ($ok) {
+            $pdo = new PDO(
+                "mysql:host={$cfg['host']};dbname={$cfg['name']};charset=utf8mb4",
+                $cfg['user'],
+                $cfg['pass'],
+                [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
+            );
+            return $pdo;
         }
     }
-    $pdo = new PDO(
-        "mysql:host={$cfg['host']};dbname={$cfg['name']};charset=utf8mb4",
-        $cfg['user'],
-        $cfg['pass'],
-        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
-    );
-    return $pdo;
+    // Mode 2 — co-hosted: borrow the sibling app's DB layer (same machine,
+    // same database; credentials never duplicated). No return-type hint:
+    // the app exposes its mysqli-backed App\\PDO shim, which is
+    // duck-type compatible with the global PDO polyfill above.
+    $appBase = dirname(dirname(__DIR__)) . '/b2b_outreach_lamp';
+    if (is_file($appBase . '/includes/autoload.php')) {
+        require_once $appBase . '/includes/autoload.php';
+    }
+    if (is_file($appBase . '/includes/Database.php')) {
+        require_once $appBase . '/includes/Database.php';
+        $pdo = \App\Database::getConnection();
+        return $pdo;
+    }
+    ls_json_response(['valid' => false, 'reason' => 'server_misconfigured'], 500);
 }
 
 /** Best-effort client IP (direct connections on shared hosting; no trusted-proxy chain). */
