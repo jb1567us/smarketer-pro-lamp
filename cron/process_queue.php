@@ -48,6 +48,10 @@ if ($lockStmt->rowCount() === 0) {
     exit(0);
 }
 
+// Record this run for the Diagnostics page (cron health check). Cheap
+// settings upsert, inside the process lock; best-effort, never fatal.
+\App\Database::setSetting('queue_last_run_at', date('Y-m-d H:i:s'));
+
 try {
     // --- Crash recovery: re-queue tasks orphaned by a dead run ---
     $requeued = $pdo->prepare(

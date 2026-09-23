@@ -104,4 +104,24 @@ class Database
             return $default;
         }
     }
+
+    /**
+     * Upsert a settings row. Same INSERT ... ON DUPLICATE KEY UPDATE pattern
+     * as api/settings.php; used by the cron worker to record its last tick.
+     * Never throws.
+     */
+    public static function setSetting(string $key, string $value): bool
+    {
+        try {
+            $pdo = self::getConnection();
+            $stmt = $pdo->prepare(
+                'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ' .
+                'ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)'
+            );
+            return $stmt->execute([$key, $value]);
+        } catch (\Exception $e) {
+            error_log("[Database] Error saving setting '$key': " . $e->getMessage());
+            return false;
+        }
+    }
 }
