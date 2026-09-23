@@ -89,6 +89,46 @@ class PDO
     {
         return (string)$this->mysqli->insert_id;
     }
+
+    private bool $inTx = false;
+
+    public function beginTransaction(): bool
+    {
+        try {
+            $this->mysqli->begin_transaction();
+            $this->inTx = true;
+            return true;
+        } catch (\mysqli_sql_exception $e) {
+            throw new PDOException($e->getMessage(), $e->getCode(), $e);
+        }
+    }
+
+    public function commit(): bool
+    {
+        try {
+            $this->mysqli->commit();
+            $this->inTx = false;
+            return true;
+        } catch (\mysqli_sql_exception $e) {
+            throw new PDOException($e->getMessage(), $e->getCode(), $e);
+        }
+    }
+
+    public function rollBack(): bool
+    {
+        try {
+            $this->mysqli->rollback();
+            $this->inTx = false;
+            return true;
+        } catch (\mysqli_sql_exception $e) {
+            throw new PDOException($e->getMessage(), $e->getCode(), $e);
+        }
+    }
+
+    public function inTransaction(): bool
+    {
+        return $this->inTx;
+    }
 }
 
 class PDOStatement
