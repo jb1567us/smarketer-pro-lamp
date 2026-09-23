@@ -217,6 +217,7 @@ class Compliance
      */
     public static function evaluateCaslGateWithSettings(array $lead, string $email, bool $gateEnabled, string $unknownMode): array
     {
+        $unknownMode = strtolower(trim($unknownMode));
         if (!$gateEnabled) {
             return ['decision' => 'allow', 'rule' => 'gate_disabled', 'message' => ''];
         }
@@ -272,15 +273,7 @@ class Compliance
     {
         $email = trim($to);
         if ($lead === null) {
-            try {
-                $pdo = Database::getConnection();
-                $stmt = $pdo->prepare("SELECT consent_status, country_code FROM leads WHERE email = ? LIMIT 1");
-                $stmt->execute([strtolower($email)]);
-                $lead = $stmt->fetch() ?: [];
-            } catch (\Throwable $e) {
-                // Fail safe: no lead row readable → unknown country/consent.
-                $lead = [];
-            }
+            $lead = self::fetchLeadConsentRow($email);
         }
         $result = self::evaluateCaslGate($lead, $email);
         self::logCaslDecision(
@@ -290,6 +283,30 @@ class Compliance
             $result['rule']
         );
         return $result;
+    }
+
+    /**
+     * Fetch the lead row the CASL gate needs. Falls back to a
+     * consent_status-only SELECT on pre-item-8 schemas (no country_code
+     * column yet) so the gate keeps working during the migration window;
+     * a missing row or an unreadable table both fail safe to unknown.
+     */
+    private static function fetchLeadConsentRow(string $email): array
+    {
+        try {
+            $pdo = Database::getConnection();
+            try {
+                $stmt = $pdo->prepare("SELECT consent_status, country_code FROM leads WHERE email = ? LIMIT 1");
+                $stmt->execute([strtolower($email)]);
+            } catch (\Throwable $e) {
+                $stmt = $pdo->prepare("SELECT consent_status FROM leads WHERE email = ? LIMIT 1");
+                $stmt->execute([strtolower($email)]);
+            }
+            $row = $stmt->fetch();
+            return $row === false ? [] : $row;
+        } catch (\Throwable $e) {
+            return [];
+        }
     }
 
     /**

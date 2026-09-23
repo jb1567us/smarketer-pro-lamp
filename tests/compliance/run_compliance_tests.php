@@ -63,10 +63,12 @@ try {
 
     // Apply the REAL migration file verbatim via the mysql CLI (it uses
     // DELIMITER, which PDO cannot parse). Twice, to prove idempotency.
-    $migFile = escapeshellarg($repo . '/migrations/2026-09-23-compliance.sql');
-    foreach ([1, 2] as $run) {
-        $sh("mysql -u {$dbUser} -p{$dbPass} compliance_test < {$migFile}");
-        ok(true, "migration applies cleanly (run {$run})");
+    foreach (['2026-09-23-compliance.sql', '2026-09-23-compliance-gaps.sql'] as $mig) {
+        $migFile = escapeshellarg($repo . '/migrations/' . $mig);
+        foreach ([1, 2] as $run) {
+            $sh("mysql -u {$dbUser} -p{$dbPass} compliance_test < {$migFile}");
+            ok(true, "{$mig} applies cleanly (run {$run})");
+        }
     }
     $cols = $pdo->query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='compliance_test' AND TABLE_NAME='leads'")->fetchAll(PDO::FETCH_COLUMN);
     foreach (['consent_status','consent_proof','verification_status','verified_at','is_role_based','target_persona','email_source','source_url'] as $c) {
@@ -99,20 +101,38 @@ try {
     expectThrow(fn() => \App\Compliance::requireCompliantSend('fine@example.com'),
         'sender identity', 'refuses when identity unconfigured');
     $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('company_legal_name','Test Corp LLC'), ('physical_address','123 Main St, Austin, TX 78701'), ('app_base_url','https://example.com/app')");
-    ok((function () { \App\Compliance::requireCompliantSend('fine@example.com'); return true; })(), 'passes with identity set');
+    // Item 8: unknown country + non-express consent blocks by default, so give
+    // the test address an explicit non-CA country before expecting a pass.
+    $pdo->exec("INSERT INTO leads (company_name, email, country_code, consent_status) VALUES ('Fine Co','fine@example.com','US','unknown')");
+    ok((function () { \App\Compliance::requireCompliantSend('fine@example.com'); return true; })(), 'passes with identity set (explicit country)');
     expectThrow(fn() => \App\Compliance::requireCompliantSend('optout@example.com'),
         'suppression list', 'refuses suppressed address');
 
-    // CASL gate
-    $pdo->exec("INSERT INTO leads (company_name, email, consent_status) VALUES ('CA Co','lead@shop.ca','unknown')");
+    // CASL country gate (item 8): explicit ISO country, auditable decisions.
+    // Unknown country + non-express consent -> BLOCK by default.
+    $pdo->exec("INSERT INTO leads (company_name, email, consent_status) VALUES ('Mystery Co','mystery@example.com','unknown')");
+    expectThrow(fn() => \App\Compliance::requireCompliantSend('mystery@example.com'),
+        'country is unknown', 'refuses unknown-country address with unknown consent');
+    // Express consent -> ALLOW even with unknown country.
+    $pdo->exec("UPDATE leads SET consent_status='express' WHERE email='mystery@example.com'");
+    ok((function () { \App\Compliance::requireCompliantSend('mystery@example.com'); return true; })(), 'unknown country passes with express consent');
+    // Explicit CA + unknown consent -> BLOCK while the master toggle is on.
+    $pdo->exec("INSERT INTO leads (company_name, email, country_code, consent_status) VALUES ('CA Co','lead@shop.ca','CA','unknown')");
     expectThrow(fn() => \App\Compliance::requireCompliantSend('lead@shop.ca'),
-        'CASL', 'refuses .ca address with unknown consent');
+        'CASL', 'refuses CA address with unknown consent');
     $pdo->exec("UPDATE leads SET consent_status='express' WHERE email='lead@shop.ca'");
-    ok((function () { \App\Compliance::requireCompliantSend('lead@shop.ca'); return true; })(), '.ca passes with express consent');
+    ok((function () { \App\Compliance::requireCompliantSend('lead@shop.ca'); return true; })(), 'CA passes with express consent');
+    // Master toggle off -> the whole CASL gate is disabled (backward
+    // compatible: buyers who had it off see zero behavior change).
     $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('compliance_casl_ca_block','0') ON DUPLICATE KEY UPDATE setting_value='0'");
-    $pdo->exec("UPDATE leads SET consent_status='unknown' WHERE email='lead@shop.ca'");
-    ok((function () { \App\Compliance::requireCompliantSend('lead@shop.ca'); return true; })(), '.ca passes when block explicitly disabled');
+    $pdo->exec("UPDATE leads SET consent_status='unknown', country_code=NULL WHERE email='lead@shop.ca'");
+    ok((function () { \App\Compliance::requireCompliantSend('lead@shop.ca'); return true; })(), 'master toggle off disables the gate entirely');
+    // Toggle back on + unknown-country mode = allow -> passes via the
+    // explicit override (admin accepts the legal risk).
     $pdo->exec("UPDATE settings SET setting_value='1' WHERE setting_key='compliance_casl_ca_block'");
+    $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('compliance_casl_unknown_country','allow') ON DUPLICATE KEY UPDATE setting_value='allow'");
+    ok((function () { \App\Compliance::requireCompliantSend('lead@shop.ca'); return true; })(), 'passes when unknown-country handling set to allow');
+    $pdo->exec("DELETE FROM settings WHERE setting_key='compliance_casl_unknown_country'");
 
     // --- Footer -----------------------------------------------------------
     echo "footer:\n";

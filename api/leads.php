@@ -109,12 +109,15 @@ try {
                 }
             }
 
-            $allowed = ['company_name', 'contact_name', 'email', 'website', 'status', 'notes', 'lead_score', 'source', 'target_persona'];
+            $allowed = ['company_name', 'contact_name', 'email', 'website', 'status', 'notes', 'lead_score', 'source', 'target_persona', 'country_code'];
             $set = [];
             $vals = [];
             foreach ($allowed as $col) {
                 if (array_key_exists($col, $input)) {
-                    $vals[] = $input[$col];
+                    // Item 8: country_code is validated to ISO-3166-1 alpha-2; invalid → NULL (unknown)
+                    $vals[] = ($col === 'country_code')
+                        ? \App\Compliance::normalizeCountryCode($input[$col])
+                        : $input[$col];
                     $set[] = "{$col} = ?";
                 }
             }
@@ -172,7 +175,7 @@ try {
             $input['contact_name'] ?? null,
             $input['target_persona'] ?? null
         );
-        $stmt = $pdo->prepare("INSERT INTO leads (company_name, contact_name, email, website, source, target_persona) VALUES (?, ?, ?, ?, ?, ?)");
+        $stmt = $pdo->prepare("INSERT INTO leads (company_name, contact_name, email, website, source, target_persona, country_code) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $stmt->execute([
             $input['company_name'],
             $contactName,
@@ -180,6 +183,8 @@ try {
             $input['website'] ?? '',
             $input['source'] ?? 'API',
             $targetPersona,
+            // Item 8: recipient country (ISO-3166-1 alpha-2); invalid → NULL (unknown)
+            \App\Compliance::normalizeCountryCode($input['country_code'] ?? null),
         ]);
         echo json_encode(['success' => true, 'id' => $pdo->lastInsertId()]);
         exit;

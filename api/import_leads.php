@@ -37,6 +37,24 @@ $lawfulBasisDefault = isset($_POST['lawful_basis']) ? substr(trim((string)$_POST
 $lawfulBasisDefault = $lawfulBasisDefault !== '' ? $lawfulBasisDefault : null;
 $hasLawfulBasisCol = \App\Gdpr::columnExists($pdo, 'leads', 'lawful_basis');
 
+// Recipient country (CASL, item 8, additive): optional POST field applied to
+// every imported row, or an optional 6th CSV column per row (the column wins
+// when non-empty). ISO-3166-1 alpha-2; invalid values → NULL (unknown).
+// When leads.country_code does not exist yet (item-8 DDL not applied), the
+// import behaves exactly as before.
+$countryDefault = \App\Compliance::normalizeCountryCode($_POST['country_code'] ?? null);
+$hasCountryCol = false;
+try {
+    $colStmt = $pdo->prepare(
+        "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " .
+        "AND TABLE_NAME = 'leads' AND COLUMN_NAME = 'country_code' LIMIT 1"
+    );
+    $colStmt->execute();
+    $hasCountryCol = (bool)$colStmt->fetch();
+} catch (\Throwable $e) {
+    $hasCountryCol = false;
+}
+
 // Skip header
 $header = fgetcsv($handle);
 $imported = 0;
@@ -46,6 +64,7 @@ try {
     $pdo->beginTransaction();
     $extraCols = [];
     if ($hasLawfulBasisCol) { $extraCols[] = 'lawful_basis'; }
+    if ($hasCountryCol) { $extraCols[] = 'country_code'; }
     $placeholders = implode(', ', array_fill(0, 6 + count($extraCols), '?'));
     $stmt = $pdo->prepare(
         "INSERT IGNORE INTO leads (company_name, contact_name, email, website, campaign_id, source" .
@@ -55,7 +74,7 @@ try {
 
     while (($row = fgetcsv($handle)) !== FALSE) {
         // Basic assumption: col 0=Company, 1=Contact, 2=Email, 3=Website,
-        // 4=Lawful basis (optional)
+        // 4=Lawful basis (optional), 5=Country ISO-2 (optional)
         if (count($row) >= 3) {
             $params = [
                 $row[0],
@@ -68,6 +87,10 @@ try {
             if ($hasLawfulBasisCol) {
                 $rowBasis = isset($row[4]) ? substr(trim((string)$row[4]), 0, 50) : '';
                 $params[] = $rowBasis !== '' ? $rowBasis : $lawfulBasisDefault;
+            }
+            if ($hasCountryCol) {
+                $rowCountry = isset($row[5]) ? \App\Compliance::normalizeCountryCode($row[5]) : null;
+                $params[] = $rowCountry !== null ? $rowCountry : $countryDefault;
             }
             $stmt->execute($params);
             $imported++;

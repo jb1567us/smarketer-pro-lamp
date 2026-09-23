@@ -49,12 +49,9 @@ try {
     if (\App\Compliance::isSuppressed($to)) {
         throw new Exception("This address is on the suppression list (opt-out, bounce, or complaint) and cannot be mailed.");
     }
-    if (\App\Compliance::isCanadianAddress($to)
-        && (\App\Database::getSetting('compliance_casl_ca_block', '1') === '1')
-        && (($lead['consent_status'] ?? 'unknown') !== 'express')
-    ) {
-        throw new Exception("Canada's CASL blocks commercial email to this harvested address without express consent. Record express consent or disable the block in System Settings.");
-    }
+    // CASL is enforced AND audited at the EmailSender::send() choke point
+    // (Compliance::requireCompliantSend → casl_decisions). No duplicate gate
+    // here: one send attempt = one CASL decision = one audit row.
 
     // 2. Fetch Email and SMTP settings
     $stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('active_email_provider', 'email_sender', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_encryption')");

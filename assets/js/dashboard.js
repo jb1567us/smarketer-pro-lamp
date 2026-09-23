@@ -64,6 +64,10 @@ function showAddLeadModal() {
                     <input type="url" id="add-website" placeholder="https://acme.com" class="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500/50 outline-none transition">
                 </div>
                 <div>
+                    <label class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Country (ISO 2-letter)</label>
+                    <input type="text" id="add-country" maxlength="2" placeholder="e.g. CA, US \u2014 blank = unknown" class="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500/50 outline-none transition uppercase">
+                </div>
+                <div>
                     <label class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Assign Campaign</label>
                     <select id="add-campaign" class="w-full bg-slate-900 border border-white/10 rounded-xl px-4 py-2.5 text-sm text-white focus:border-blue-500/50 outline-none transition appearance-none">
                         <option value="">-- No Campaign --</option>
@@ -104,6 +108,7 @@ async function submitAddLead() {
                 contact_name: document.getElementById('add-contact').value.trim(),
                 email,
                 website:     document.getElementById('add-website').value.trim(),
+                country_code: (document.getElementById('add-country').value.trim().toUpperCase() || null),
                 campaign_id: document.getElementById('add-campaign').value || null,
                 notes:       document.getElementById('add-notes').value.trim(),
                 source:      'Manual'
@@ -883,6 +888,10 @@ async function editLead(id) {
                     <input type="email" id="edit-email" value="${escapeHtml(lead.email || '')}" placeholder="Email Address" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2">
                 </div>
                 <div>
+                    <label class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Country (ISO 2-letter)</label>
+                    <input type="text" id="edit-country" maxlength="2" value="${escapeHtml(lead.country_code || '')}" placeholder="e.g. CA, US \u2014 blank = unknown" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 uppercase">
+                </div>
+                <div>
                     <label class="block text-[10px] text-slate-500 uppercase font-bold tracking-wider mb-1">Outreach Campaign</label>
                     <select id="edit-campaign" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-white">
                         <option value="">-- No Campaign --</option>
@@ -905,6 +914,7 @@ async function saveLeadEdit(id) {
         company_name: document.getElementById('edit-company').value.trim(),
         contact_name: document.getElementById('edit-contact').value.trim(),
         email:        document.getElementById('edit-email').value.trim(),
+        country_code: (document.getElementById('edit-country').value.trim().toUpperCase() || null),
         campaign_id:  document.getElementById('edit-campaign').value || null
     };
     if (!data.company_name) { toast('Company name is required', 'warn'); return; }
@@ -1376,7 +1386,7 @@ async function saveSettings() {
         'serper_api_key', 'tavily_api_key', 'exa_api_key', 'searxng_url', 'apify_api_token',
         'scraper_priority', 'bright_data_proxy_url', 'proxy_rotation_enabled',
         'active_email_provider', 'email_sender', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_encryption',
-        'company_legal_name', 'physical_address', 'app_base_url', 'compliance_casl_ca_block',
+        'company_legal_name', 'physical_address', 'app_base_url', 'compliance_casl_ca_block', 'compliance_casl_unknown_country',
         'resend_api_key', 'brevo_api_key', 'sendgrid_api_key', 'mailgun_api_key', 'mailjet_api_key', 
         'postmark_api_key', 'mailersend_api_key', 'mailtrap_api_key', 'zoho_api_key', 'netcore_api_key',
         'sendpulse_smtp_pass', 'amazon_ses_smtp_pass', 'zoho_smtp_pass', 'netcore_smtp_pass',

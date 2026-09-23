@@ -452,12 +452,21 @@ require_once __DIR__ . '/includes/autoload.php';
                         </div>
 
                         <div class="space-y-1.5">
-                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Canadian Recipients (CASL)</label>
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">CASL Country Gate (master)</label>
                             <select id="setting-compliance_casl_ca_block" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
-                                <option value="1">Block unconsented .ca sends (recommended)</option>
-                                <option value="0">Allow — I accept the legal risk</option>
+                                <option value="1">On — block unconsented CA / unknown-country sends (recommended)</option>
+                                <option value="0">Off — I accept the legal risk</option>
                             </select>
-                            <p class="text-[9px] text-slate-500">Canada's anti-spam law prohibits commercial email to harvested addresses without express consent. Disabling this is logged as your decision.</p>
+                            <p class="text-[9px] text-slate-500">Master switch for the CASL country gate. It keys off each lead's recorded country (not the .ca domain). Turning it off is logged as your decision.</p>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Unknown-Country CASL Handling</label>
+                            <select id="setting-compliance_casl_unknown_country" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                <option value="block">Block unknown-country leads without express consent (recommended)</option>
+                                <option value="allow">Allow — I accept the legal risk</option>
+                            </select>
+                            <p class="text-[9px] text-slate-500">Safe default for leads with no recorded country. Leads with express consent are never blocked by an unknown country.</p>
                         </div>
 
                         <!-- Active Email Provider selector -->

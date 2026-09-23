@@ -36,7 +36,7 @@ const SETTINGS_ALLOWLIST = [
     'wp_site_url', 'wp_username', 'wp_app_password',
     // Compliance (CAN-SPAM / CASL sender identity)
     'company_legal_name', 'physical_address', 'app_base_url',
-    'compliance_casl_ca_block',
+    'compliance_casl_ca_block', 'compliance_casl_unknown_country',
     // DNS preflight (SPF/DKIM/DMARC check on campaign start): result cache TTL in hours
     'dns_preflight_cache_hours',
 ];
