@@ -38,20 +38,6 @@ function expectThrow(callable $fn, string $needle, string $name): void
     }
 }
 
-/** ITEM A: fake verification provider (scripted INVALID verdict, no network). */
-class ItemABlockedFakeProvider implements \App\Verification\EmailVerificationProvider
-{
-    public function name(): string { return 'itema-fake'; }
-    public function verify(string $email): \App\Verification\EmailVerificationResult
-    {
-        return new \App\Verification\EmailVerificationResult(
-            \App\Verification\EmailVerificationResult::INVALID,
-            $this->name(),
-            new \DateTimeImmutable()
-        );
-    }
-}
-
 try {
     // --- Scratch database -------------------------------------------------
     // Local MariaDB root is unix-socket auth: use the mysql CLI like the
@@ -70,6 +56,22 @@ try {
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
+
+    /** ITEM A: fake verification provider (scripted INVALID verdict, no network).
+     *  Declared here — after the autoloader is registered — so the
+     *  App\Verification\EmailVerificationProvider interface resolves. */
+    class ItemABlockedFakeProvider implements \App\Verification\EmailVerificationProvider
+    {
+        public function name(): string { return 'itema-fake'; }
+        public function verify(string $email): \App\Verification\EmailVerificationResult
+        {
+            return new \App\Verification\EmailVerificationResult(
+                \App\Verification\EmailVerificationResult::INVALID,
+                $this->name(),
+                new \DateTimeImmutable()
+            );
+        }
+    }
 
     // Minimal tables the compliance layer needs.
     $pdo->exec("CREATE TABLE settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB");
