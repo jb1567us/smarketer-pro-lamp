@@ -91,31 +91,34 @@ if ($mysqlDsn !== '') {
     }
     $dbUser = getenv('BULKVERIFY_MYSQL_USER') ?: '';
     $dbPass = getenv('BULKVERIFY_MYSQL_PASS') ?: '';
+    // Omit -p when the password is empty: `-p''` makes the mysql client
+    // prompt on stdin, which eats a redirected SQL file and corrupts the import.
+    $dbPwArg = $dbPass !== '' ? ' -p' . escapeshellarg($dbPass) : '';
     exec(sprintf(
-        '%s -h %s -u %s -p%s -e %s 2>&1',
+        '%s -h %s -u %s%s -e %s </dev/null 2>&1',
         escapeshellarg($mysqlCli),
         escapeshellarg(getenv('BULKVERIFY_MYSQL_HOST') ?: '127.0.0.1'),
         escapeshellarg($dbUser),
-        escapeshellarg($dbPass),
+        $dbPwArg,
         escapeshellarg("DROP DATABASE IF EXISTS `{$dbName}`; CREATE DATABASE `{$dbName}` CHARACTER SET utf8mb4;")
     ), $out, $code);
     if ($code !== 0) { fwrite(STDERR, "cannot create MySQL test DB\n" . implode("\n", $out) . "\n"); exit(2); }
     exec(sprintf(
-        '%s -h %s -u %s -p%s %s < %s 2>&1',
+        '%s -h %s -u %s%s %s < %s 2>&1',
         escapeshellarg($mysqlCli),
         escapeshellarg(getenv('BULKVERIFY_MYSQL_HOST') ?: '127.0.0.1'),
         escapeshellarg($dbUser),
-        escapeshellarg($dbPass),
+        $dbPwArg,
         escapeshellarg($dbName),
         escapeshellarg($repo . '/schema.sql')
     ), $out, $code);
     if ($code !== 0) { fwrite(STDERR, "schema.sql import failed\n" . implode("\n", $out) . "\n"); exit(2); }
     exec(sprintf(
-        '%s -h %s -u %s -p%s %s < %s 2>&1',
+        '%s -h %s -u %s%s %s < %s 2>&1',
         escapeshellarg($mysqlCli),
         escapeshellarg(getenv('BULKVERIFY_MYSQL_HOST') ?: '127.0.0.1'),
         escapeshellarg($dbUser),
-        escapeshellarg($dbPass),
+        $dbPwArg,
         escapeshellarg($dbName),
         escapeshellarg($repo . '/migrations/2026-09-24-bulk-verify.sql')
     ), $out, $code);

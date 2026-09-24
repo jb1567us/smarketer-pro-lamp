@@ -486,9 +486,10 @@ class SimpleHarvester {
                 $trustExtraCols = ', trust_score, trust_breakdown';
                 $trustExtraPlaceholders = ', ?, ?';
                 $trustExtraParams = [$itemTrustScore, json_encode($item['trust_breakdown'] ?? [])];
-                // TrustScorer statuses are valid for both the VARCHAR(20) and
-                // the phase-7 ENUM('unverified','evidence_backed',
-                // 'dns_confirmed','cross_source_matched','gold_standard').
+                // Item B: the union ENUM('unverified','evidence_backed',
+                // 'dns_confirmed','cross_source_matched','gold_standard',
+                // 'unknown','valid','invalid','risky') accepts every value
+                // TrustScorer can emit; see migrations/2026-09-24-itemb-enum-align.sql.
                 $insertVerifStatus = $item['verification_status'] ?? 'unverified';
             }
             $targetPersona = !empty($leadPersona) ? $leadPersona : null;

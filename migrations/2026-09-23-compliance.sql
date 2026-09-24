@@ -32,7 +32,7 @@ DELIMITER ;
 
 CALL add_col_if_missing('leads', 'consent_status', "`consent_status` ENUM('unknown','implied','express') NOT NULL DEFAULT 'unknown'");
 CALL add_col_if_missing('leads', 'consent_proof', "`consent_proof` TEXT NULL");
-CALL add_col_if_missing('leads', 'verification_status', "`verification_status` VARCHAR(20) NOT NULL DEFAULT 'unknown'");
+CALL add_col_if_missing('leads', 'verification_status', "`verification_status` ENUM('unverified','evidence_backed','dns_confirmed','cross_source_matched','gold_standard','unknown','valid','invalid','risky') NOT NULL DEFAULT 'unknown'");
 CALL add_col_if_missing('leads', 'verified_at', "`verified_at` TIMESTAMP NULL");
 CALL add_col_if_missing('leads', 'is_role_based', "`is_role_based` TINYINT(1) NOT NULL DEFAULT 0");
 CALL add_col_if_missing('leads', 'target_persona', "`target_persona` VARCHAR(255) NULL");

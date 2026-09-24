@@ -22,7 +22,9 @@ ALTER TABLE leads ADD FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCA
 ALTER TABLE leads 
 ADD COLUMN trust_score INT DEFAULT 0 AFTER lead_score,
 ADD COLUMN trust_breakdown JSON DEFAULT NULL AFTER trust_score,
-ADD COLUMN verification_status ENUM('unverified', 'evidence_backed', 'dns_confirmed', 'cross_source_matched', 'gold_standard') DEFAULT 'unverified' AFTER status,
+ADD COLUMN verification_status ENUM('unverified','evidence_backed','dns_confirmed','cross_source_matched','gold_standard','unknown','valid','invalid','risky') NOT NULL DEFAULT 'unknown' AFTER status,
+-- ITEM B (2026-09-24): ENUM widened to the union of bulk-verify/gate verdicts
+-- and TrustScorer tiers; see migrations/2026-09-24-itemb-enum-align.sql.
 ADD COLUMN mx_records TEXT DEFAULT NULL AFTER notes,
 ADD COLUMN tech_stack TEXT DEFAULT NULL AFTER mx_records;
 
