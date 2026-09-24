@@ -159,6 +159,14 @@ function processHarvestJob(array $payload): array
     $harvester = new \SimpleHarvester();
     $results = $harvester->harvest($query, $limit);
 
+    // Item 4: score with the real TrustScorer before staging + returning to
+    // the card renderer (sync/async parity — see api/mass_tools.php).
+    $results = \SimpleHarvester::scoreHarvestResults(
+        $results,
+        null,
+        \SimpleHarvester::isHarvestDnsEnabled($pdo)
+    );
+
     // Stage results
     \SimpleHarvester::stageResults($pdo, $results, $query, $campaignId, $leadPersona);
 
