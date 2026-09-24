@@ -76,6 +76,42 @@ try {
     // (Compliance::requireCompliantSend → casl_decisions). No duplicate gate
     // here: one send attempt = one CASL decision = one audit row.
 
+    // Phase 0 fix (was high-priority gap H3): duplicate-send protection.
+    // Refuse to mail an address we already sent to unless the caller passes
+    // force_resend:true explicitly (deliberate resend, not an accident).
+    $forceResend = !empty($input['force_resend']);
+    if (!$forceResend) {
+        try {
+            $dupStmt = $pdo->prepare(
+                "SELECT provider_id, campaign_id, status, timestamp, metadata_json " .
+                "FROM email_logs WHERE lead_email = ? AND status IN ('sent','queued') " .
+                "ORDER BY timestamp DESC LIMIT 1"
+            );
+            $dupStmt->execute([$to]);
+            $prior = $dupStmt->fetch();
+            if ($prior) {
+                $when = date('Y-m-d H:i', (int)$prior['timestamp']);
+                http_response_code(409);
+                echo json_encode([
+                    'success' => false,
+                    'error' => "Already sent to {$to} on {$when} via {$prior['provider_id']}. " .
+                               "Pass force_resend:true to send again deliberately.",
+                    'already_sent' => [
+                        'provider' => $prior['provider_id'],
+                        'campaign_id' => $prior['campaign_id'],
+                        'status' => $prior['status'],
+                        'sent_at' => date('c', (int)$prior['timestamp']),
+                    ],
+                ]);
+                exit;
+            }
+        } catch (\Throwable $e) {
+            // Fail open on lookup failure (a missing email_logs table must not
+            // block sending); the send itself is still logged below.
+            error_log('[send_email] duplicate-send lookup failed: ' . $e->getMessage());
+        }
+    }
+
     // 2. Fetch Email and SMTP settings
     $stmt = $pdo->query("SELECT setting_key, setting_value FROM settings WHERE setting_key IN ('active_email_provider', 'email_sender', 'smtp_host', 'smtp_port', 'smtp_user', 'smtp_pass', 'smtp_encryption')");
     $settings = $stmt->fetchAll(\App\PDO::FETCH_KEY_PAIR);

@@ -94,6 +94,11 @@ class TaskProcessor
             'Qualify' => new QualifyLeadAction($this->pdo, $this->llmRouter),
             'Enrich' => new EnrichLeadAction($this->pdo, $this->llmRouter),
             'Draft' => new DraftOutreachAction($this->pdo, $this->llmRouter),
+            // Legacy aliases (pre-Phase-0 rows may still carry these — the
+            // queue ENUM itself allows them). Map, don't fail.
+            'Qualification' => new QualifyLeadAction($this->pdo, $this->llmRouter),
+            'Enrichment' => new EnrichLeadAction($this->pdo, $this->llmRouter),
+            'Drafting' => new DraftOutreachAction($this->pdo, $this->llmRouter),
             default => null,
         };
     }

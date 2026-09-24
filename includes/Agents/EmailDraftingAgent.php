@@ -5,7 +5,12 @@ use App\Database;
 
 /**
  * Email Drafting Agent
- * Generates personalized outreach based on lead data and intent signals.
+ *
+ * @deprecated Phase 0: retired. The dashboard draft button and the task
+ * queue now use the real LLM pipeline
+ * (\App\Actions\DraftOutreachAction), scoped to the lead's own campaign.
+ * This class's hardcoded templates are kept only for backward compatibility
+ * and should not be used for new code.
  */
 class EmailDraftingAgent {
     private $pdo;

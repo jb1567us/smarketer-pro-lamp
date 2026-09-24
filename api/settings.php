@@ -46,6 +46,12 @@ const SETTINGS_ALLOWLIST = [
     'throttle_defer_minutes',
     'monitor_complaint_rate_threshold', 'monitor_bounce_rate_threshold',
     'monitor_auto_pause', 'monitor_min_delivered',
+    // Compliance item 3: email verification gate (MillionVerifier). Off by
+    // default; the gate is enforced at the send choke point via
+    // Compliance::requireCompliantSend() once verification_required = '1'
+    // AND a key is configured.
+    'verification_required', 'verification_provider', 'verification_api_key',
+    'verification_risky_action', 'verification_strict', 'verification_cache_days',
 ];
 
 /**

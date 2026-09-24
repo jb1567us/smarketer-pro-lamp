@@ -35,8 +35,16 @@ class QualifyLeadAction extends AbstractAction
         $score = $data['score'] ?? 0;
         $reason = $data['reason'] ?? '';
 
+        // Phase 0 fix (was critical defect C2): qualification used to OVERWRITE
+        // leads.notes, destroying the enrichment research the drafter needs.
+        // The verdict is now APPENDED with a clear marker; existing notes
+        // (enrichment data, prior drafts) are preserved.
+        $existingNotes = (string)($lead['notes'] ?? '');
+        $qualNote = "\n\n[Qualification " . date('Y-m-d') . "]: {$status} (score {$score}) — {$reason}";
+        $newNotes = $existingNotes . $qualNote;
+
         $stmt = $this->pdo->prepare("UPDATE leads SET lead_score = ?, status = ?, notes = ? WHERE id = ?");
-        $stmt->execute([$score, $status, $reason, $leadId]);
+        $stmt->execute([$score, $status, $newNotes, $leadId]);
 
         return true;
     }

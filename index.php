@@ -471,6 +471,52 @@ require_once __DIR__ . '/includes/autoload.php';
                             <p class="text-[9px] text-slate-500">Safe default for leads with no recorded country. Leads with express consent are never blocked by an unknown country.</p>
                         </div>
 
+                        <!-- Email Verification gate (MillionVerifier) -->
+                        <div class="space-y-1.5 pt-2 border-t border-white/5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">✉️ Email Verification <span class="text-slate-600 normal-case font-medium">— off by default</span></label>
+                            <p class="text-[9px] text-slate-500">When enabled, every send is checked against MillionVerifier first. Risky addresses are blocked (or flagged) before they can hurt your sender reputation. Uses your key and your credits.</p>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Verification Gate</label>
+                            <select id="setting-verification_required" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                <option value="0">Off (default)</option>
+                                <option value="1">On — verify every recipient before sending</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between items-center">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">MillionVerifier API Key</label>
+                                <a href="https://www.millionverifier.com/" target="_blank" class="text-[9px] text-blue-400 hover:text-blue-300 font-bold uppercase flex items-center gap-0.5">🔑 Get Key ↗</a>
+                            </div>
+                            <input type="password" id="setting-verification_api_key" placeholder="••••••••" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                            <p class="text-[9px] text-slate-500">Pay-as-you-go credits, never expire. With no key the gate stays dormant even when enabled.</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Risky Addresses</label>
+                                <select id="setting-verification_risky_action" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                    <option value="block">Block send (recommended)</option>
+                                    <option value="flag">Flag but allow</option>
+                                </select>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">"Unknown" Verdict</label>
+                                <select id="setting-verification_strict" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                    <option value="0">Fail open — allow</option>
+                                    <option value="1">Strict — block</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Verdict Cache (days)</label>
+                            <input type="number" min="0" max="365" id="setting-verification_cache_days" placeholder="30" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                            <p class="text-[9px] text-slate-500">Reuse a cached verdict for this many days instead of spending another credit. 0 = always re-verify.</p>
+                        </div>
+
                         <!-- Active Email Provider selector -->
                         <div class="space-y-1.5">
                             <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Active Outreach Method</label>

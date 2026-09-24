@@ -19,8 +19,11 @@ $pdo = \App\Database::getConnection();
 
 // Item 8: leads.country_code exists only after the gaps migration. Probe once
 // so add/edit degrade gracefully on pre-migration databases instead of
-// fataling on an unknown column.
+// fataling on an unknown column. Same pattern for campaigns (item 10) and
+// leads.campaign_id: the list query only LEFT JOINs when both exist.
 $hasCountryCol = false;
+$hasCampaigns = false;
+$hasLeadCampaignCol = false;
 try {
     $colStmt = $pdo->prepare(
         "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " .
@@ -28,8 +31,26 @@ try {
     );
     $colStmt->execute();
     $hasCountryCol = (bool)$colStmt->fetch();
+
+    $tblStmt = $pdo->prepare(
+        "SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() " .
+        "AND TABLE_NAME = 'campaigns' LIMIT 1"
+    );
+    $tblStmt->execute();
+    $hasCampaigns = (bool)$tblStmt->fetch();
+
+    if ($hasCampaigns) {
+        $campStmt = $pdo->prepare(
+            "SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() " .
+            "AND TABLE_NAME = 'leads' AND COLUMN_NAME = 'campaign_id' LIMIT 1"
+        );
+        $campStmt->execute();
+        $hasLeadCampaignCol = (bool)$campStmt->fetch();
+    }
 } catch (\Throwable $e) {
     $hasCountryCol = false;
+    $hasCampaigns = false;
+    $hasLeadCampaignCol = false;
 }
 
 $method = $_SERVER['REQUEST_METHOD'];
@@ -59,9 +80,11 @@ try {
         $search = trim($_GET['search'] ?? '');
 
         $where = '';
+        $whereJoined = '';
         $params = [];
         if ($search !== '') {
             $where = "WHERE company_name LIKE ? OR contact_name LIKE ? OR email LIKE ? OR website LIKE ?";
+            $whereJoined = "WHERE l.company_name LIKE ? OR l.contact_name LIKE ? OR l.email LIKE ? OR l.website LIKE ?";
             $like = "%{$search}%";
             $params = [$like, $like, $like, $like];
         }
@@ -71,7 +94,17 @@ try {
         $total = (int)$countStmt->fetchColumn();
 
         // $limit/$offset are cast ints — safe to interpolate (avoids LIMIT-placeholder issues)
-        $stmt = $pdo->prepare("SELECT * FROM leads {$where} ORDER BY created_at DESC LIMIT {$limit} OFFSET {$offset}");
+        // Phase 0 fix (was critical defect C5): the list now LEFT JOINs
+        // campaigns so the dashboard shows the REAL campaign assignment.
+        if ($hasCampaigns && $hasLeadCampaignCol) {
+            $stmt = $pdo->prepare(
+                "SELECT l.*, c.name AS campaign_name FROM leads l " .
+                "LEFT JOIN campaigns c ON c.id = l.campaign_id " .
+                "{$whereJoined} ORDER BY l.created_at DESC LIMIT {$limit} OFFSET {$offset}"
+            );
+        } else {
+            $stmt = $pdo->prepare("SELECT * FROM leads {$where} ORDER BY created_at DESC LIMIT {$limit} OFFSET {$offset}");
+        }
         $stmt->execute($params);
         $leads = $stmt->fetchAll();
 
@@ -126,14 +159,23 @@ try {
 
             $allowed = ['company_name', 'contact_name', 'email', 'website', 'status', 'notes', 'lead_score', 'source', 'target_persona'];
             if ($hasCountryCol) { $allowed[] = 'country_code'; }
+            // Phase 0 fix (was critical defect C5): campaign_id was silently
+            // dropped on update even though the UI sends it.
+            if ($hasLeadCampaignCol) { $allowed[] = 'campaign_id'; }
             $set = [];
             $vals = [];
             foreach ($allowed as $col) {
                 if (array_key_exists($col, $input)) {
                     // Item 8: country_code is validated to ISO-3166-1 alpha-2; invalid → NULL (unknown)
-                    $vals[] = ($col === 'country_code')
-                        ? \App\Compliance::normalizeCountryCode($input[$col])
-                        : $input[$col];
+                    if ($col === 'country_code') {
+                        $vals[] = \App\Compliance::normalizeCountryCode($input[$col]);
+                    } elseif ($col === 'campaign_id') {
+                        // '' / 0 → NULL (unassign); otherwise a real campaign id.
+                        $cid = (int)$input[$col];
+                        $vals[] = $cid > 0 ? $cid : null;
+                    } else {
+                        $vals[] = $input[$col];
+                    }
                     $set[] = "{$col} = ?";
                 }
             }
@@ -149,7 +191,7 @@ try {
         if ($action === 'update_status') {
             $id = (int)($input['id'] ?? 0);
             $status = trim($input['status'] ?? '');
-            $valid = ['New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted'];
+            $valid = ['New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted'];
             if ($id <= 0 || !in_array($status, $valid, true)) {
                 leads_error(400, 'Missing or invalid id/status');
             }
@@ -170,14 +212,33 @@ try {
             exit;
         }
 
-        // Generate an outreach draft for a lead
+        // Generate an outreach draft for a lead.
+        // Phase 0 fix (was critical defect C4): this used to route through
+        // EmailDraftingAgent's two hardcoded templates ("not AI"). It now
+        // runs the real LLM draft action, scoped to the lead's own campaign.
         if ($action === 'draft') {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) leads_error(400, 'Missing lead id');
-            $agent = new \App\Agents\EmailDraftingAgent($pdo);
-            $result = $agent->draft($id);
-            if (empty($result['success'])) http_response_code(502);
-            echo json_encode($result);
+            try {
+                $drafter = new \App\Actions\DraftOutreachAction(
+                    $pdo,
+                    new \App\Routers\SmartLLMRouter($pdo)
+                );
+                $draft = $drafter->buildDraft($id);
+            } catch (\App\Exceptions\OutreachException $e) {
+                // Buyer-actionable failures (no campaign, no templates, LLM
+                // error): 502 with the message, not a bare 500.
+                http_response_code(502);
+                echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+                exit;
+            }
+            echo json_encode([
+                'success' => true,
+                'subject' => $draft['subject'],
+                'body' => $draft['body'],
+                'campaign_id' => $draft['campaign_id'],
+                'campaign_name' => $draft['campaign_name'],
+            ]);
             exit;
         }
 
@@ -191,7 +252,7 @@ try {
             $input['contact_name'] ?? null,
             $input['target_persona'] ?? null
         );
-        $leadCols = ['company_name', 'contact_name', 'email', 'website', 'source', 'target_persona'];
+        $leadCols = ['company_name', 'contact_name', 'email', 'website', 'source', 'target_persona', 'notes'];
         $leadVals = [
             $input['company_name'],
             $contactName,
@@ -199,11 +260,20 @@ try {
             $input['website'] ?? '',
             $input['source'] ?? 'API',
             $targetPersona,
+            // Phase 0 fix: the add-lead form sends notes but they were dropped.
+            trim((string)($input['notes'] ?? '')),
         ];
         if ($hasCountryCol) {
             $leadCols[] = 'country_code';
             // Item 8: recipient country (ISO-3166-1 alpha-2); invalid → NULL (unknown)
             $leadVals[] = \App\Compliance::normalizeCountryCode($input['country_code'] ?? null);
+        }
+        // Phase 0 fix (was critical defect C5): the add-lead form sends
+        // campaign_id but it was silently dropped on create.
+        if ($hasLeadCampaignCol) {
+            $leadCols[] = 'campaign_id';
+            $cid = (int)($input['campaign_id'] ?? 0);
+            $leadVals[] = $cid > 0 ? $cid : null;
         }
         $placeholders = implode(', ', array_fill(0, count($leadCols), '?'));
         $stmt = $pdo->prepare("INSERT INTO leads (" . implode(', ', $leadCols) . ") VALUES ({$placeholders})");

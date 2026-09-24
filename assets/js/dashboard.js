@@ -361,21 +361,29 @@ async function runSupervisorCheck() {
     }
 }
 
-async function runTask(leadId, type) {
+async function runTask(leadId, type, btn) {
+    // Phase 0 fix (was critical defect C3): this function was dead code —
+    // nothing called it. It now backs the per-row Enrich/Qualify buttons and
+    // maps to task types the queue processor actually handles.
+    const originalHtml = btn ? btn.innerHTML : null;
+    if (btn) { btn.innerHTML = '⌛'; btn.disabled = true; }
     try {
         const response = await fetch('api/trigger_task.php', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ lead_id: leadId, task_type: type })
         });
         const result = await response.json();
         if (result.success) {
-            alert(`Task ${type} triggered: ${result.message}`);
+            toast(`Task ${type} done: ${result.message}`, 'success');
             fetchLeads();
         } else {
-            alert('Error: ' + result.error);
+            toast('Task failed: ' + result.error, 'error');
         }
     } catch (e) {
-        alert('Failed to trigger task');
+        toast('Failed to trigger task', 'error');
+    } finally {
+        if (btn) { btn.innerHTML = originalHtml; btn.disabled = false; }
     }
 }
 
@@ -560,6 +568,7 @@ function updateLeadsTable(leads, meta) {
                     <option value="Converted">Converted</option>
                 </select>
                 <button onclick="bulkStatusChange()" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold transition">Apply Status</button>
+                <button onclick="bulkPipeline()" class="px-3 py-1.5 rounded-lg bg-violet-600/20 hover:bg-violet-600/40 text-violet-300 text-xs font-bold border border-violet-500/20 transition" title="Queue Enrich → Qualify → Draft for selected leads (runs via cron, in order)">⚡ Pipeline</button>
                 <button onclick="bulkDelete()" class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-400 text-xs font-bold border border-rose-500/20 transition">🗑️ Delete</button>
                 <button onclick="clearBulkSelection()" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 text-xs font-bold transition">✕ Clear</button>`;
             tableWrap.insertBefore(toolbar, tableWrap.firstChild);
@@ -626,6 +635,8 @@ function renderTableRows(leads) {
             <td class="px-6 py-5">
                 <div class="flex gap-2">
                     <button onclick="analyzeLead(${lead.id}, this)" class="p-2 rounded-lg bg-white/5 hover:bg-blue-600/20 text-slate-400 hover:text-blue-400 transition" title="Analyze Intent">🧬</button>
+                    <button onclick="runTask(${lead.id}, 'Enrich', this)" class="p-2 rounded-lg bg-white/5 hover:bg-amber-600/20 text-slate-400 hover:text-amber-400 transition" title="Enrich Lead (research)">🔍</button>
+                    <button onclick="runTask(${lead.id}, 'Qualify', this)" class="p-2 rounded-lg bg-white/5 hover:bg-violet-600/20 text-slate-400 hover:text-violet-400 transition" title="Qualify Lead (ICP fit)">✅</button>
                     <button onclick="draftLead(${lead.id}, this)" class="p-2 rounded-lg bg-white/5 hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400 transition" title="Draft Email">✉️</button>
                 </div>
             </td>
@@ -667,6 +678,32 @@ function clearBulkSelection() {
 
 function getSelectedIds() {
     return [...document.querySelectorAll('.lead-checkbox:checked')].map(el => parseInt(el.dataset.id));
+}
+
+async function bulkPipeline() {
+    // Phase 0: one-click Enrich → Qualify → Draft for every selected lead.
+    // Queued (deferred) with staggered scheduled_at so the cron worker
+    // processes each lead's steps in order. No emails are sent.
+    const ids = getSelectedIds();
+    if (!ids.length) { toast('No leads selected', 'warn'); return; }
+    if (!confirm(`Queue Enrich → Qualify → Draft for ${ids.length} lead(s)? Tasks run via the cron worker in order. No emails will be sent.`)) return;
+    try {
+        const res = await fetch('api/trigger_task.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lead_ids: ids, task_type: 'Pipeline' })
+        });
+        const r = await res.json();
+        if (r.success) {
+            toast(`Queued ${r.queued} tasks for ${ids.length} lead(s)`, 'success');
+            clearBulkSelection();
+            fetchLeads();
+        } else {
+            toast('Pipeline failed: ' + (r.error || 'unknown error'), 'error');
+        }
+    } catch (e) {
+        toast('Failed to queue pipeline', 'error');
+    }
 }
 
 async function bulkDelete() {
@@ -822,7 +859,7 @@ async function draftLead(id, btn) {
     }
 }
 
-async function sendDraftEmail(leadId, btn) {
+async function sendDraftEmail(leadId, btn, forceResend = false) {
     const subject = document.getElementById('draft-subject').value;
     const body = document.getElementById('draft-body').value;
     const originalText = btn.innerText;
@@ -834,7 +871,7 @@ async function sendDraftEmail(leadId, btn) {
         const response = await fetch('api/send_email.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lead_id: leadId, subject, body })
+            body: JSON.stringify({ lead_id: leadId, subject, body, force_resend: forceResend })
         });
         const result = await response.json();
 
@@ -843,6 +880,14 @@ async function sendDraftEmail(leadId, btn) {
             closeModal();
             fetchLeads();
             fetchStats();
+        } else if (response.status === 409 && result.already_sent && !forceResend) {
+            // Duplicate-send protection tripped: offer a deliberate resend.
+            btn.disabled = false;
+            btn.innerText = originalText;
+            const sentAt = result.already_sent.sent_at ? new Date(result.already_sent.sent_at).toLocaleString() : 'previously';
+            if (confirm(`⚠️ Already emailed this lead (${sentAt} via ${result.already_sent.provider}).\n\nSend again anyway?`)) {
+                sendDraftEmail(leadId, btn, true);
+            }
         } else {
             toast('Error: ' + (result.error || 'Send failed'), 'error');
         }
@@ -1446,7 +1491,9 @@ async function saveSettings() {
         'resend_api_key', 'brevo_api_key', 'sendgrid_api_key', 'mailgun_api_key', 'mailjet_api_key', 
         'postmark_api_key', 'mailersend_api_key', 'mailtrap_api_key', 'zoho_api_key', 'netcore_api_key',
         'sendpulse_smtp_pass', 'amazon_ses_smtp_pass', 'zoho_smtp_pass', 'netcore_smtp_pass',
-        'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url'
+        'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url',
+        'verification_required', 'verification_provider', 'verification_api_key',
+        'verification_risky_action', 'verification_strict', 'verification_cache_days'
     ];
     const settings = {};
     keys.forEach(k => {
