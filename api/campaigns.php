@@ -76,6 +76,15 @@ try {
                         elseif (in_array($row['status'], ['failed', 'bounced'], true)) $c['metrics']['failed'] += (int)$row['n'];
                         elseif ($row['status'] === 'queued') $c['metrics']['queued'] += (int)$row['n'];
                     }
+                    // Queued-but-unsent outreach for this campaign. Two sources:
+                    //  1) email_logs rows with status 'queued' (send_email.php
+                    //     currently logs only 'sent'/'failed', so this is 0
+                    //     until deferred sending is implemented).
+                    //  2) Pending/In-Progress EmailOutreach tasks whose payload
+                    //     carries this campaign_id. NOTE: as of 2026-09-24 no
+                    //     production code enqueues EmailOutreach tasks, so this
+                    //     is also 0 today; kept for forward-compatibility with
+                    //     queue-based campaign sending.
                     $q = $pdo->prepare(
                         "SELECT COUNT(*) AS n FROM task_queue WHERE task_type = 'EmailOutreach' " .
                         "AND status IN ('Pending','In Progress') " .

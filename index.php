@@ -67,14 +67,10 @@ $checklist_done = !in_array(false, $checklist, true);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Smarketer Pro - B2B Lead Hub</title>
     <meta name="csrf-token" content="<?= htmlspecialchars(\App\Auth::csrfToken()) ?>">
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="assets/css/app.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
-        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255, 255, 255, 0.1); }
-    </style>
 </head>
-<body class="bg-[#0b0f1a] text-slate-200 font-sans selection:bg-blue-500/30">
+<body class="bg-[#0b0f1a] text-slate-200 font-sans selection:bg-blue-500/30" data-ui-mode="<?= $ui_mode ?>">
     <!-- Sidebar Navigation -->
     <aside class="fixed top-0 left-0 h-full w-20 lg:w-64 glass border-r border-white/5 z-50 flex flex-col items-center lg:items-start p-4 transition-all duration-300">
         <div class="mb-10 px-2 flex items-center gap-3">
@@ -858,6 +854,7 @@ $checklist_done = !in_array(false, $checklist, true);
                     </div>
                 </div>
             </div>
+            </div><!-- /two-tier grid -->
 
             <!-- Quota Monitor & Health Dashboard -->
             <div class="mt-12 pt-10 border-t border-white/5 space-y-6 <?= $is_guided ? 'hidden' : '' ?>" data-guided="0">
@@ -877,7 +874,8 @@ $checklist_done = !in_array(false, $checklist, true);
                     <!-- Glassmorphic Quota Cards will be dynamically injected here -->
                 </div>
             </div>
-        </div>
+        </div><!-- /settings-tab -->
+        </div><!-- close settings-tab: balances pre-existing unclosed divs inside the settings two-tier grid (see commit) -->
 
         <div id="diagnostics-tab" class="tab-content hidden glass p-8 rounded-3xl max-w-5xl mx-auto border border-white/5">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -911,7 +909,7 @@ $checklist_done = !in_array(false, $checklist, true);
                     <li>Never post your <strong class="text-slate-200">API keys, passwords, or license key</strong> — this report never includes them; keep it that way.</li>
                 </ul>
             </div>
-        </div>
+        </div><!-- /diagnostics-tab -->
     </main>
 
     <div id="modal-container" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden z-[100] flex items-center justify-center p-4"></div>

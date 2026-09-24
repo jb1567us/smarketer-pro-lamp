@@ -768,9 +768,12 @@ function updatePaginationControls(meta) {
     const hasPrev = offset > 0;
     const hasNext = (offset + limit) < total;
     pager.className = 'flex items-center justify-between mt-4 px-2';
+    const rangeText = total === 0
+        ? `Showing <strong class="text-slate-300">0</strong> of <strong class="text-slate-300">0</strong> leads`
+        : `Showing ${offset + 1}–${Math.min(offset + limit, total)} of <strong class="text-slate-300">${total}</strong> leads`;
     pager.innerHTML = `
         <span class="text-xs text-slate-500">
-            Showing ${offset + 1}–${Math.min(offset + limit, total)} of <strong class="text-slate-300">${total}</strong> leads
+            ${rangeText}
         </span>
         <div class="flex items-center gap-2">
             <button onclick="leadsGoPage(${page - 1})" ${!hasPrev ? 'disabled' : ''}

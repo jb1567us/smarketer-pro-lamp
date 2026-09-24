@@ -30,10 +30,8 @@ class Database
                     return [$host, $name, $user, $pass];
                 }
             }
-            throw new OutreachException(
-                'Database configuration file config/db.php is present but incomplete. ' .
-                'Re-run install.php or fix the file.'
-            );
+            // Incomplete placeholder (ships with the release): fall through to
+            // environment variables instead of failing, per config/db.php docs.
         }
 
         $host = getenv('DB_HOST') ?: 'localhost';
