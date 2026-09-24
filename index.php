@@ -794,6 +794,7 @@ $checklist_done = !in_array(false, $checklist, true);
                             </details>
                         </div>
                     </div>
+                    </div><!-- /outreach-channels card -->
 
                     <!-- Advanced Network & Proxy Settings Card -->
                     <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6 <?= $is_guided ? 'hidden' : '' ?>" data-guided="0">
@@ -875,7 +876,6 @@ $checklist_done = !in_array(false, $checklist, true);
                 </div>
             </div>
         </div><!-- /settings-tab -->
-        </div><!-- close settings-tab: balances pre-existing unclosed divs inside the settings two-tier grid (see commit) -->
 
         <div id="diagnostics-tab" class="tab-content hidden glass p-8 rounded-3xl max-w-5xl mx-auto border border-white/5">
             <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
