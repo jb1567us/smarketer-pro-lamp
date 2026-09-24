@@ -96,7 +96,9 @@ INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
 ('searxng_url', 'http://localhost:8080/search'),
 ('active_search_provider', 'searxng'),
 -- Soft phone-home license lock: empty URL = licensing disabled entirely.
-('license_server_url', '');
+('license_server_url', ''),
+-- SES region selector (Item 3): validated SES SMTP region, default us-east-1.
+('ses_region', 'us-east-1');
 
 -- Influencers: Social media candidates
 CREATE TABLE IF NOT EXISTS influencers (

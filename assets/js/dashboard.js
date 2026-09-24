@@ -1593,6 +1593,7 @@ async function saveSettings() {
         'resend_api_key', 'brevo_api_key', 'sendgrid_api_key', 'mailgun_api_key', 'mailjet_api_key', 
         'postmark_api_key', 'mailersend_api_key', 'mailtrap_api_key', 'zoho_api_key', 'netcore_api_key',
         'sendpulse_smtp_pass', 'amazon_ses_smtp_pass', 'zoho_smtp_pass', 'netcore_smtp_pass',
+        'ses_region',
         'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url',
         'license_server_url', 'license_key',
         // Email verification (MillionVerifier send gate + bulk verify)
