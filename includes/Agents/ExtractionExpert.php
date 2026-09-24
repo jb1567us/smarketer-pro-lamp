@@ -121,7 +121,11 @@ class ExtractionExpert {
                 WHERE id = ?
             ");
             
-            $status = $primaryEmail ? 'Qualified' : 'Cold';
+            // ITEM B: 'Cold' is NOT a member of leads.status
+            // ENUM('New','Enriched','Contacted','Qualified','Unqualified','Converted','Drafted')
+            // and fatals under STRICT SQL mode (ERROR 1265). 'Unqualified' is the
+            // closest legitimate state for "no primary email extracted".
+            $status = $primaryEmail ? 'Qualified' : 'Unqualified';
             $updateStmt->execute([
                 $primaryEmail ?: $lead['email'],
                 $analysis['score'] ?? $lead['lead_score'],

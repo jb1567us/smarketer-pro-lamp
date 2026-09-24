@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS leads (
     lawful_basis VARCHAR(50) NULL,
     consent_status ENUM('unknown','implied','express') NOT NULL DEFAULT 'unknown',
     consent_proof TEXT NULL,
-    verification_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+    verification_status ENUM('unverified','evidence_backed','dns_confirmed','cross_source_matched','gold_standard','unknown','valid','invalid','risky') NOT NULL DEFAULT 'unknown' COMMENT 'Item B: union of TrustScorer tiers and bulk-verify/gate verdicts. VALUE ORDER IS LOAD-BEARING: keeps the phase-7 prefix first so any direct ENUM->ENUM ALTER remaps by position without corrupting data',
     verified_at TIMESTAMP NULL,
     is_role_based TINYINT(1) NOT NULL DEFAULT 0,
     target_persona VARCHAR(255) NULL,
@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS leads (
     INDEX idx_status_score (status, lead_score),
     INDEX idx_email (email),
     INDEX idx_leads_campaign (campaign_id),
-    INDEX idx_leads_country (country_code)
+    INDEX idx_leads_country (country_code),
+    INDEX idx_leads_verification (verification_status, trust_score)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Campaigns table: Stores outreach sequences
