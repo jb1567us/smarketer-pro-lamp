@@ -75,7 +75,7 @@ try {
             ['jev_mode', $mode],
             ['jev_api_key', 'proof-key-not-real'],
             ['jev_base_url', "http://127.0.0.1:{$port}/"],
-            ['jev_model', 'jev-1.13'],
+            ['jev_model', 'jev-latest'],
             ['jev_min_confidence', '0.65'],
             ['jev_shadow_log', $shadowLog],
         ];
@@ -114,13 +114,14 @@ try {
     $questions = function () {
         return [
             'qualified' => JevProvider::noulQuestion('The lead matches every must-have of the ideal customer profile.'),
-            'score' => JevProvider::scoreQuestion('ICP fit score 0-100.', 0, 100),
+            'score' => JevProvider::scoreQuestion('ICP fit.', ['No fit', 'Weak fit', 'Partial fit', 'Strong fit', 'Perfect fit']),
         ];
     };
     // Same normalize + agree callbacks as QualifyLeadAction.
     $extract = function ($a) {
         if (is_array($a) && isset($a['qualified']) && is_array($a['qualified']) && isset($a['qualified']['noul'])) {
-            return [(float)$a['qualified']['noul'] >= 0.5, (float)($a['score']['score'] ?? 0)];
+            $position = (float)($a['score']['score'] ?? 0);
+            return [(float)$a['qualified']['noul'] >= 0.5, JevProvider::scoreToPercent($position, 5)];
         }
         return [(bool)($a['qualified'] ?? false), (float)($a['score'] ?? 0)];
     };

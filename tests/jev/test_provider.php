@@ -31,7 +31,7 @@ $req = lastRequest();
 $body = json_decode($req['body'] ?? '', true) ?: [];
 check('sends Bearer auth', ($req['authorization'] ?? '') === 'Bearer test-key');
 check('sends JSON content type', stripos($req['content_type'] ?? '', 'application/json') !== false);
-check('payload has model/state/questions', ($body['model'] ?? '') === 'jev-1.13' && ($body['state'] ?? '') === 'some state' && isset($body['questions']['qualified']));
+check('payload has model/state/questions', ($body['model'] ?? '') === 'jev-latest' && ($body['state'] ?? '') === 'some state' && isset($body['questions']['qualified']));
 
 // 2. 401 -> JevAuthException, no key material in message.
 try { prov('unauthorized')->systemOne('s', q()); check('401 -> JevAuthException', false); }
@@ -68,7 +68,11 @@ catch (\Throwable $e) { check('missing answers -> JevException (got ' . get_clas
 // 8. Convenience builders produce the documented question shapes.
 check('noulQuestion shape', \App\Jev\JevProvider::noulQuestion('p') === ['type' => 'noul', 'instructions' => 'p']);
 check('choiceQuestion shape', \App\Jev\JevProvider::choiceQuestion('p', ['a','b']) === ['type' => 'choice', 'instructions' => 'p', 'options' => ['a','b']]);
-check('scoreQuestion shape', \App\Jev\JevProvider::scoreQuestion('p') === ['type' => 'score', 'instructions' => 'p', 'min' => 0, 'max' => 100]);
+check('scoreQuestion shape', \App\Jev\JevProvider::scoreQuestion('p', ['low', 'mid', 'high']) === ['type' => 'score', 'instructions' => 'p', 'criteria' => ['low', 'mid', 'high']]);
+try { \App\Jev\JevProvider::scoreQuestion('p', ['only-one']); check('scoreQuestion rejects <2 levels', false); }
+catch (\App\Jev\JevException $e) { check('scoreQuestion rejects <2 levels', true); }
+check('scoreToPercent endpoints', \App\Jev\JevProvider::scoreToPercent(0.0, 5) === 0.0 && \App\Jev\JevProvider::scoreToPercent(4.0, 5) === 100.0);
+check('scoreToPercent midpoint', \App\Jev\JevProvider::scoreToPercent(2.5, 5) === 62.5);
 
 // 9. askNoul helper runs end-to-end (stub answers are keyed 'qualified', so
 // the 'q' answer is absent -> [false, 0.0]; the point is no error escapes).

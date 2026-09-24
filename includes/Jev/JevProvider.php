@@ -12,15 +12,16 @@ namespace App\Jev;
  *
  * Endpoint:  POST https://api.typesafe.ai/v1/systemone
  * Auth:      Authorization: Bearer <TYPESAFE_API_KEY>
- * Body:      {"model": "jev-1.13", "state": <str|dict|list>, "questions": {...}}
+ * Body:      {"model": "jev-latest", "state": <str|dict|list>, "questions": {...}}
  * Response:  {"answers": {...}, "usage": {...}}
  *
  * Question types:
  *   - noul:   {"type": "noul", "instructions": "..."}  -> {"noul": 0.0-1.0}
  *   - choice: {"type": "choice", "options": [...], "instructions": "...",
  *              "criteria": {opt: desc}}                -> {"choice": str, "probabilities": {...}, "confidence": 0-1}
- *   - score:  {"type": "score", "min": 0, "max": 100, "instructions": "..."}
- *                                                       -> {"score": float, "probabilities": {...}, "confidence": 0-1}
+ *   - score:  {"type": "score", "instructions": "...",
+ *              "criteria": ["level0 desc", ..., "levelN desc"]}  (2-10 levels)
+ *                                                       -> {"score": position 0.0-(N-1), "probabilities": {...}, "confidence": 0-1}
  *
  * Pricing (vendor-published, verify before forecasting): $0.042 / 1M input
  * tokens, output tokens free.
@@ -32,7 +33,7 @@ namespace App\Jev;
  */
 class JevProvider
 {
-    public const DEFAULT_MODEL = 'jev-1.13'; // pinned for reproducibility; alias "jev-latest" drifts
+    public const DEFAULT_MODEL = 'jev-latest'; // pinned versions are retired by the vendor (jev-1.13 -> 404 as of 2026-09); re-check /v1/models periodically
     public const DEFAULT_BASE_URL = 'https://api.typesafe.ai/v1';
     public const SYSTEMONE_PATH = '/systemone';
 
@@ -163,9 +164,34 @@ class JevProvider
         return $q;
     }
 
-    public static function scoreQuestion(string $instructions, int $minValue = 0, int $maxValue = 100): array
+    /**
+     * Score question: position on an ordered spectrum described in words.
+     * Criteria: 2-10 level descriptions, low end first (level 0) to high end.
+     * The API returns `score` as a position that may land between levels;
+     * convert it back to a 0-100 scale with scoreToPercent().
+     *
+     * @throws JevValidationException when criteria has fewer than 2 or more than 10 levels.
+     */
+    public static function scoreQuestion(string $instructions, array $criteria): array
     {
-        return ['type' => 'score', 'instructions' => $instructions, 'min' => $minValue, 'max' => $maxValue];
+        $criteria = array_values($criteria);
+        $n = count($criteria);
+        if ($n < 2 || $n > 10) {
+            throw new JevValidationException('Score criteria must have 2-10 ordered levels; got ' . $n . '.');
+        }
+        return ['type' => 'score', 'instructions' => $instructions, 'criteria' => $criteria];
+    }
+
+    /**
+     * Convert a score answer's level position back to a 0-100 scale.
+     */
+    public static function scoreToPercent(float $position, int $levelCount): float
+    {
+        if ($levelCount < 2) {
+            return 0.0;
+        }
+        $pct = $position / ($levelCount - 1) * 100;
+        return max(0.0, min(100.0, round($pct, 1)));
     }
 
     // ------------------------------------------------------------------
@@ -193,13 +219,14 @@ class JevProvider
     }
 
     /**
-     * @return array [score, confidence]
+     * @return array [score 0-100, confidence]
      */
-    public function askScore($state, string $instructions, int $minValue = 0, int $maxValue = 100): array
+    public function askScore($state, string $instructions, array $criteria): array
     {
-        $answers = $this->systemOne($state, ['q' => self::scoreQuestion($instructions, $minValue, $maxValue)]);
+        $answers = $this->systemOne($state, ['q' => self::scoreQuestion($instructions, $criteria)]);
         $a = $answers['q'] ?? [];
-        return [(float)($a['score'] ?? 0.0), (float)($a['confidence'] ?? 0.0)];
+        $position = (float)($a['score'] ?? 0.0);
+        return [self::scoreToPercent($position, count($criteria)), (float)($a['confidence'] ?? 0.0)];
     }
 
     // ------------------------------------------------------------------

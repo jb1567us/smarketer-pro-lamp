@@ -77,7 +77,7 @@ try {
     $shadowLog = sys_get_temp_dir() . '/phase1_shadow.jsonl';
     @unlink($shadowLog);
     $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES " .
-        "('jev_enabled', 'shadow'), ('jev_model', 'jev-1.13'), ('jev_shadow_log', '{$shadowLog}') " .
+        "('jev_enabled', '1'), ('jev_mode', 'shadow'), ('jev_model', 'jev-latest'), ('jev_shadow_log', '{$shadowLog}') " .
         "ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
 
     if ($mode === '--setup') {

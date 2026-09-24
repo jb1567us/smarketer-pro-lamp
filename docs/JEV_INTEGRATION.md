@@ -13,7 +13,7 @@ PHP port of `smarketer-pro`'s `src/llm/decision_tier.py` /
 
 | File | Role |
 |---|---|
-| `includes/Jev/JevProvider.php` | Thin System One HTTP client (POST `https://api.typesafe.ai/v1/systemone`, Bearer auth, retries on 429/529 with 2s/4s/8s backoff, 120k-char state budget). Model pinned to `jev-1.13`. |
+| `includes/Jev/JevProvider.php` | Thin System One HTTP client (POST `https://api.typesafe.ai/v1/systemone`, Bearer auth, retries on 429/529 with 2s/4s/8s backoff, 120k-char state budget). Model default `jev-latest` (pinned versions get retired by the vendor — `jev-1.13` 404s as of 2026-09-24). |
 | `includes/Jev/DecisionTier.php` | off/shadow/live routing, lazy shared provider, shadow logging. |
 | `includes/Jev/JevException.php` | Base exception. |
 | `includes/Jev/JevAuthException.php` | 401 — bad/missing key. Own file: the PSR-4 autoloader requires one class per file. |
@@ -27,7 +27,7 @@ PHP port of `smarketer-pro`'s `src/llm/decision_tier.py` /
 | `jev_enabled` | `1` = tier active, `0` = bypassed (default `0`) |
 | `jev_mode` | `shadow` (default) or `live` |
 | `jev_api_key` | TypeSafe key (`ts_...`). Stored like any other secret; never returned by `api/settings.php`. Env fallback `TYPESAFE_API_KEY`. |
-| `jev_model` | Override, default `jev-1.13` |
+| `jev_model` | Override, default `jev-latest` |
 | `jev_min_confidence` | Live-mode escalation threshold, default `0.65` |
 | `jev_shadow_log` | Optional explicit shadow-log path |
 

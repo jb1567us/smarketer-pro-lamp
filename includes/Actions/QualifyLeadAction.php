@@ -67,15 +67,23 @@ class QualifyLeadAction extends AbstractAction
             'goal' => $goal,
             'lead_context' => $context,
         ];
+        // Ordered fit levels for the score question (level 0 = worst .. level 4 = best).
+        // The API returns a position on these levels; scoreToPercent() maps it to 0-100.
+        $fitLevels = [
+            'No fit: none of the ideal-customer must-haves are evidenced in the lead context.',
+            'Weak fit: a single must-have is evidenced; major gaps or deal-breakers present.',
+            'Partial fit: several must-haves evidenced, but key gaps remain.',
+            'Strong fit: most must-haves evidenced; minor gaps only.',
+            'Perfect fit: every must-have evidenced and no deal-breakers.',
+        ];
         $questions = [
             'qualified' => JevProvider::noulQuestion(
                 'The lead matches every must-have of the ideal customer profile and has no deal-breakers. ' .
                 'Answer true only if the lead context contains supporting evidence; answer false when evidence is thin.'
             ),
             'score' => JevProvider::scoreQuestion(
-                'Ideal-customer-profile fit score for this lead, 0 to 100, based only on evidence in the lead context.',
-                0,
-                100
+                'Ideal-customer-profile fit for this lead, based only on evidence in the lead context.',
+                $fitLevels
             ),
         ];
 
@@ -84,31 +92,34 @@ class QualifyLeadAction extends AbstractAction
             $state,
             $questions,
             fn() => $this->callAgent($persona, $goal, $context),
-            function ($a) {
+            function ($a) use ($fitLevels) {
                 // Normalize both Jev answers and legacy results to [qualified, score].
                 if (is_array($a) && isset($a['qualified']) && is_array($a['qualified']) && isset($a['qualified']['noul'])) {
-                    return [(float)$a['qualified']['noul'] >= 0.5, (float)($a['score']['score'] ?? 0)];
+                    $position = (float)($a['score']['score'] ?? 0);
+                    $score100 = JevProvider::scoreToPercent($position, count($fitLevels));
+                    return [(float)$a['qualified']['noul'] >= 0.5, $score100];
                 }
                 return [(bool)($a['qualified'] ?? false), (float)($a['score'] ?? 0)];
             },
             fn($jv, $lv) => $jv[0] === $lv[0] && abs($jv[1] - $lv[1]) <= 15
         );
 
-        return $this->answersToQualification($answers);
+        return $this->answersToQualification($answers, $fitLevels);
     }
 
     /**
      * Converts Jev answers (live mode) — or passes through the legacy result
      * (off/shadow mode) — into the qualification shape this action stores.
      */
-    private function answersToQualification($answers): array
+    private function answersToQualification($answers, array $fitLevels): array
     {
         if (
             is_array($answers) && isset($answers['qualified'])
             && is_array($answers['qualified']) && isset($answers['qualified']['noul'])
         ) {
             $prob = (float)$answers['qualified']['noul'];
-            $score = (int)round((float)($answers['score']['score'] ?? 0));
+            $position = (float)($answers['score']['score'] ?? 0);
+            $score = (int)round(JevProvider::scoreToPercent($position, count($fitLevels)));
             $verdict = $prob >= 0.5 ? 'qualified' : 'not qualified';
             return [
                 'qualified' => $prob >= 0.5,
