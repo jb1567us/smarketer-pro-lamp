@@ -43,6 +43,15 @@ CREATE TABLE IF NOT EXISTS campaigns (
     paused_at TIMESTAMP NULL,
     daily_send_cap INT NULL,
     dns_preflight_override TINYINT(1) NOT NULL DEFAULT 0,
+    -- ITEM A (2026-09-24): per-campaign blocked-send counters; one per
+    -- refusal reason, incremented when a send is refused. Survive reloads
+    -- and cron restarts (existing DBs: migrations/2026-09-24-blocked-counts.sql).
+    blocked_invalid_verification INT NOT NULL DEFAULT 0,
+    blocked_suppression INT NOT NULL DEFAULT 0,
+    blocked_compliance_pause INT NOT NULL DEFAULT 0,
+    blocked_throttle INT NOT NULL DEFAULT 0,
+    blocked_license_revoked INT NOT NULL DEFAULT 0,
+    blocked_placeholder INT NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

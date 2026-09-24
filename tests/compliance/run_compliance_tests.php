@@ -38,6 +38,20 @@ function expectThrow(callable $fn, string $needle, string $name): void
     }
 }
 
+/** ITEM A: fake verification provider (scripted INVALID verdict, no network). */
+class ItemABlockedFakeProvider implements \App\Verification\EmailVerificationProvider
+{
+    public function name(): string { return 'itema-fake'; }
+    public function verify(string $email): \App\Verification\EmailVerificationResult
+    {
+        return new \App\Verification\EmailVerificationResult(
+            \App\Verification\EmailVerificationResult::INVALID,
+            $this->name(),
+            new \DateTimeImmutable()
+        );
+    }
+}
+
 try {
     // --- Scratch database -------------------------------------------------
     // Local MariaDB root is unix-socket auth: use the mysql CLI like the
@@ -170,6 +184,61 @@ try {
     $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('company_legal_name','Test Corp LLC'), ('physical_address','123 Main St, Austin, TX 78701')");
     expectThrow(fn() => \App\EmailSender::send('pending_abc@placeholder.com', 's', 'b', 'resend', 'k', 'news@example.com'),
         'placeholder', 'placeholder guard still fires first');
+
+    // --- ITEM A: blocked-send counters --------------------------------------
+    // Every send refusal is counted against the owning campaign and the
+    // count persists (a real column, not a log scrape).
+    echo "blocked counts:\n";
+    $pdo->exec("CREATE TABLE IF NOT EXISTS campaigns (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, is_active TINYINT(1) DEFAULT 1) ENGINE=InnoDB");
+    // The migration must apply cleanly twice (idempotency requirement).
+    foreach ([1, 2] as $run) {
+        $sh("mysql -u {$dbUser} -p{$dbPass} compliance_test < " . escapeshellarg($repo . '/migrations/2026-09-24-blocked-counts.sql'));
+        ok(true, "2026-09-24-blocked-counts.sql applies cleanly (run {$run})");
+    }
+    $bcCols = $pdo->query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='compliance_test' AND TABLE_NAME='campaigns'")->fetchAll(PDO::FETCH_COLUMN);
+    foreach (['blocked_invalid_verification', 'blocked_suppression', 'blocked_compliance_pause', 'blocked_throttle', 'blocked_license_revoked', 'blocked_placeholder'] as $c) {
+        ok(in_array($c, $bcCols, true), "migration adds campaigns.{$c}");
+    }
+    $pdo->exec("INSERT INTO campaigns (name) VALUES ('Blocked Count Test')");
+    $bcId = (int)$pdo->lastInsertId();
+    $bcCount = function (string $col) use ($pdo, $bcId): int {
+        return (int)$pdo->query("SELECT {$col} FROM campaigns WHERE id = {$bcId}")->fetchColumn();
+    };
+    // suppression refusal
+    expectThrow(fn() => \App\Compliance::requireCompliantSend('optout@example.com', null, $bcId),
+        'suppression list', 'suppression refusal throws');
+    ok($bcCount('blocked_suppression') === 1, 'suppression refusal increments blocked_suppression');
+    // compliance_pause: sender identity not configured
+    $pdo->exec("DELETE FROM settings WHERE setting_key IN ('company_legal_name','physical_address')");
+    expectThrow(fn() => \App\Compliance::requireCompliantSend('fine@example.com', null, $bcId),
+        'sender identity', 'missing identity throws');
+    ok($bcCount('blocked_compliance_pause') === 1, 'identity refusal increments blocked_compliance_pause');
+    $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('company_legal_name','Test Corp LLC'), ('physical_address','123 Main St, Austin, TX 78701')");
+    // license_revoked
+    \App\Licensing::setVerdictForTest(\App\Licensing::defaultVerdict('revoked', 'itema-test'));
+    expectThrow(fn() => \App\Compliance::requireCompliantSend('fine@example.com', null, $bcId),
+        'revoked', 'revoked key throws');
+    ok($bcCount('blocked_license_revoked') === 1, 'revoked key increments blocked_license_revoked');
+    \App\Licensing::setVerdictForTest(null);
+    // invalid_verification (gate enabled, fake provider verdicts INVALID)
+    $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('verification_required','1'), ('verification_api_key','test-key'), ('verification_risky_action','block'), ('verification_strict','0'), ('verification_cache_days','0') ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)");
+    \App\Compliance::setVerificationProviderFactory(fn(string $k) => new ItemABlockedFakeProvider());
+    \App\Compliance::setVerificationStatusPersister(function (string $s): void {});
+    expectThrow(fn() => \App\Compliance::requireCompliantSend('fine@example.com', null, $bcId),
+        'invalid', 'invalid verdict throws');
+    ok($bcCount('blocked_invalid_verification') === 1, 'invalid verdict increments blocked_invalid_verification');
+    \App\Compliance::setVerificationProviderFactory(null);
+    \App\Compliance::setVerificationStatusPersister(null);
+    $pdo->exec("UPDATE settings SET setting_value='0' WHERE setting_key='verification_required'");
+    // placeholder refusal (EmailSender choke point)
+    expectThrow(fn() => \App\EmailSender::send('pending_abc@placeholder.com', 's', 'b', 'resend', 'k', 'news@example.com', null, $bcId),
+        'placeholder', 'placeholder refusal throws');
+    ok($bcCount('blocked_placeholder') === 1, 'placeholder refusal increments blocked_placeholder');
+    // read side: the campaigns row (as api/campaigns.php returns it) summarizes
+    $bcRow = $pdo->query("SELECT * FROM campaigns WHERE id = {$bcId}")->fetch();
+    $bcSummary = \App\BlockedCount::summarize($bcRow);
+    ok($bcSummary['total'] === 5, 'summarize() totals the persisted refusals (5)');
+    ok(count($bcSummary['breakdown']) === 5, 'summarize() lists each non-zero reason');
 
     // --- Verification funnel (FIX2): honest data-quality stages ------------
     echo "funnel:\n";

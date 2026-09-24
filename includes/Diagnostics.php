@@ -602,7 +602,8 @@ class Diagnostics
 
     /**
      * Tables the app needs + key columns added by the compliance builds.
-     * Kept in sync with schema.sql and migrations/2026-09-23-compliance*.sql.
+     * Kept in sync with schema.sql and migrations/2026-09-23-compliance*.sql
+     * plus migrations/2026-09-24-blocked-counts.sql (ITEM A).
      */
     public static function expectedSchema(): array
     {
@@ -616,6 +617,13 @@ class Diagnostics
                 'leads' => ['consent_status', 'verification_status', 'country_code'],
                 'suppression_list' => ['email_hash'],
                 'email_logs' => ['campaign_id'],
+                // ITEM A: blocked-send counters; without them the campaign
+                // view silently shows no blocked counts.
+                'campaigns' => [
+                    'blocked_invalid_verification', 'blocked_suppression',
+                    'blocked_compliance_pause', 'blocked_throttle',
+                    'blocked_license_revoked', 'blocked_placeholder',
+                ],
             ],
         ];
     }

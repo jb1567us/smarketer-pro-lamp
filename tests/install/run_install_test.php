@@ -161,6 +161,10 @@ try {
         'leads.campaign_id', 'leads.country_code', 'leads.lawful_basis',
         'campaigns.status', 'campaigns.paused_reason', 'campaigns.paused_at',
         'campaigns.daily_send_cap', 'campaigns.dns_preflight_override',
+        // ITEM A: blocked-send counters.
+        'campaigns.blocked_invalid_verification', 'campaigns.blocked_suppression',
+        'campaigns.blocked_compliance_pause', 'campaigns.blocked_throttle',
+        'campaigns.blocked_license_revoked', 'campaigns.blocked_placeholder',
         'email_logs.campaign_id', 'suppression_list.email_hash',
     ] as $tc) {
         check("fresh schema has {$tc}", $has($tc));

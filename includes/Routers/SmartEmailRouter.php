@@ -35,6 +35,8 @@ class SmartEmailRouter {
             );
             if (!$decision->allowed) {
                 $this->logEvent($to, 'guard', ['success' => false, 'error' => 'Throttled: ' . $decision->detail], $campaignId);
+                // ITEM A: a throttle refusal is a blocked send — count it.
+                \App\BlockedCount::record($campaignId, \App\BlockedCount::REASON_THROTTLE);
                 echo "  [SmartRouter] Throttled: {$decision->detail}\n";
                 return false;
             }
@@ -47,6 +49,9 @@ class SmartEmailRouter {
         // loop, no wasted API calls, no reputation damage.
         if (is_string($to) && \App\EmailSender::isPlaceholderAddress($to)) {
             $this->logEvent($to, 'guard', ['success' => false, 'error' => 'Placeholder address refused'], $campaignId);
+            // ITEM A: counted here (the router never reaches EmailSender for
+            // placeholders, so EmailSender's own record() can't fire).
+            \App\BlockedCount::record($campaignId, \App\BlockedCount::REASON_PLACEHOLDER);
             echo "  [SmartRouter] Refused: placeholder recipient address.\n";
             return false;
         }
@@ -83,7 +88,7 @@ class SmartEmailRouter {
 
             // 4. Attempt Send
             echo "  [SmartRouter] Attempting delivery via $providerName...\n";
-            $result = $this->attemptDelivery($providerName, $apiKey, $to, $subject, $body);
+            $result = $this->attemptDelivery($providerName, $apiKey, $to, $subject, $body, $campaignId);
 
             // 5. Log Result & Key Usage
             if ($result['success']) {
@@ -136,7 +141,7 @@ class SmartEmailRouter {
         }
     }
 
-    private function attemptDelivery($provider, $apiKey, $to, $subject, $body) {
+    private function attemptDelivery($provider, $apiKey, $to, $subject, $body, ?int $campaignId = null) {
         if (!$apiKey) {
             return ['success' => false, 'error' => 'API Key Missing'];
         }
@@ -145,8 +150,14 @@ class SmartEmailRouter {
         $domain = \App\Database::getSetting('smtp_host'); // Used for Mailgun domain
 
         try {
-            $success = \App\EmailSender::send($to, $subject, $body, $provider, $apiKey, $senderEmail, $domain);
+            $success = \App\EmailSender::send($to, $subject, $body, $provider, $apiKey, $senderEmail, $domain, $campaignId);
             return ['success' => $success];
+        } catch (\App\OutreachException $e) {
+            // ITEM A: guardrail refusal (suppression, compliance, license,
+            // verification) — it is already counted against the campaign by
+            // the choke point, and retrying another provider would count it
+            // again. Stop failover and let it surface.
+            throw $e;
         } catch (\Exception $e) {
             return ['success' => false, 'error' => $e->getMessage()];
         }
