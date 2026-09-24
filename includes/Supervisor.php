@@ -79,8 +79,11 @@ class Supervisor {
 
     public function auditProxyHealth() {
         $settings = $this->getSettings();
-        if (empty($settings['proxy_list'])) {
-            return "No proxies configured";
+        // Proxies are optional: "not configured" is a neutral state, not a
+        // warning. Only an enabled-but-failing proxy setup should warn.
+        $proxyEnabled = isset($settings['proxy_enabled']) && $settings['proxy_enabled'] === 'true';
+        if (!$proxyEnabled || empty($settings['proxy_socks_url'])) {
+            return "Not configured (optional)";
         }
         
         // In a real scenario, we'd test a random sample or a specific healthcheck endpoint

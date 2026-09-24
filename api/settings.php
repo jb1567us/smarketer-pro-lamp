@@ -16,6 +16,7 @@ $pdo = \App\Database::getConnection();
 
 /** Keys the Settings UI (and internal tooling) is permitted to write. */
 const SETTINGS_ALLOWLIST = [
+    'ui_mode',
     'operational_mode', 'active_llm_provider', 'ollama_url', 'openrouter_model',
     'gemini_api_key', 'openai_api_key', 'anthropic_api_key', 'groq_api_key',
     'mistral_api_key', 'openrouter_api_key',

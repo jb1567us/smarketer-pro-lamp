@@ -1,6 +1,64 @@
 <?php
 require_once __DIR__ . '/includes/autoload.php';
 \App\Auth::requirePageAuth();
+
+// ---------------------------------------------------------------------------
+// UI mode: 'guided' (default, for non-marketer owners) or 'advanced' (for
+// marketers). Persisted in the settings table; modes change visibility,
+// labels and guidance only — never business behavior.
+// ---------------------------------------------------------------------------
+$ui_mode = 'guided';
+$pdo_for_mode = null;
+try {
+    $pdo_for_mode = \App\Database::getConnection();
+    $st = $pdo_for_mode->prepare("SELECT setting_value FROM settings WHERE setting_key = 'ui_mode' LIMIT 1");
+    $st->execute();
+    $row = $st->fetch(\PDO::FETCH_ASSOC);
+    if ($row && in_array($row['setting_value'], ['guided', 'advanced'], true)) {
+        $ui_mode = $row['setting_value'];
+    }
+} catch (\Throwable $e) {
+    $ui_mode = 'guided'; // fail closed to the simpler interface
+}
+$is_guided = ($ui_mode === 'guided');
+
+// Navigation definition: tab => [icon, guided label, advanced label, modes]
+$NAV_ITEMS = [
+    'dashboard'   => ['icon' => '📊', 'guided' => 'Dashboard',          'advanced' => 'Dashboard',          'modes' => 'guided,advanced'],
+    'leads'       => ['icon' => '👥', 'guided' => 'Leads',              'advanced' => 'Leads',              'modes' => 'guided,advanced'],
+    'campaigns'   => ['icon' => '🎯', 'guided' => 'Campaigns',          'advanced' => 'Outreach Campaigns', 'modes' => 'guided,advanced'],
+    'mass'        => ['icon' => '🕸️', 'guided' => 'Discover',           'advanced' => 'Find Prospects',     'modes' => 'guided,advanced'],
+    'influencer'  => ['icon' => '🔍', 'guided' => 'Find Influencers',   'advanced' => 'Find Influencers',   'modes' => 'advanced'],
+    'agent'       => ['icon' => '🧪', 'guided' => 'AI Copywriting Lab', 'advanced' => 'AI Copywriting Lab', 'modes' => 'advanced'],
+    'settings'    => ['icon' => '⚙️', 'guided' => 'Settings',           'advanced' => 'System Settings',    'modes' => 'guided,advanced'],
+    'diagnostics' => ['icon' => '🩺', 'guided' => 'Diagnostics',        'advanced' => 'Diagnostics',        'modes' => 'advanced'],
+];
+$nav_label = function (string $tab) use ($NAV_ITEMS, $is_guided): string {
+    $item = $NAV_ITEMS[$tab];
+    return $is_guided ? $item['guided'] : $item['advanced'];
+};
+$nav_visible = function (string $tab) use ($NAV_ITEMS, $is_guided): bool {
+    return in_array($is_guided ? 'guided' : 'advanced', explode(',', $NAV_ITEMS[$tab]['modes']), true);
+};
+
+// First-run checklist state (real data, no fake progress).
+$checklist = ['ai' => false, 'lead' => false, 'campaign' => false, 'sender' => false];
+if ($is_guided && $pdo_for_mode) {
+    try {
+        $s = $pdo_for_mode->query("SELECT setting_key, setting_value FROM settings")->fetchAll(\PDO::FETCH_KEY_PAIR);
+        $aiKeys = ['gemini_api_key', 'groq_api_key', 'openrouter_api_key', 'openai_api_key', 'anthropic_api_key', 'mistral_api_key'];
+        foreach ($aiKeys as $k) {
+            if (!empty($s[$k])) { $checklist['ai'] = true; break; }
+        }
+        if (!empty($s['ollama_url'])) $checklist['ai'] = true;
+        $checklist['sender'] = !empty($s['email_sender']) || (!empty($s['smtp_host']) && !empty($s['smtp_user']));
+        $checklist['lead'] = ((int)$pdo_for_mode->query("SELECT COUNT(*) FROM leads")->fetchColumn()) > 0;
+        $checklist['campaign'] = ((int)$pdo_for_mode->query("SELECT COUNT(*) FROM campaigns")->fetchColumn()) > 0;
+    } catch (\Throwable $e) {
+        // checklist stays all-todo rather than breaking the page
+    }
+}
+$checklist_done = !in_array(false, $checklist, true);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -27,44 +85,35 @@ require_once __DIR__ . '/includes/autoload.php';
         </div>
 
         <nav class="flex-1 w-full space-y-2">
-            <!-- Pipeline -->
-            <a href="index.php?tab=leads" id="tab-leads-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
-                <span class="text-xl group-hover:scale-110 transition">📊</span>
-                <span class="hidden lg:block font-medium">Deals / Pipeline</span>
+            <?php foreach ($NAV_ITEMS as $tab => $item):
+                if (!$nav_visible($tab)) continue;
+                $hiddenAttr = ''; // visibility is server-rendered per mode
+            ?>
+            <a href="index.php?tab=<?= $tab ?>" id="tab-<?= $tab ?>-btn" data-modes="<?= htmlspecialchars($item['modes']) ?>" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
+                <span class="text-xl group-hover:scale-110 transition"><?= $item['icon'] ?></span>
+                <span class="hidden lg:block font-medium"><?= htmlspecialchars($nav_label($tab)) ?></span>
             </a>
-            <!-- Campaigns -->
-            <a href="index.php?tab=campaigns" id="tab-campaigns-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
-                <span class="text-xl group-hover:scale-110 transition">🎯</span>
-                <span class="hidden lg:block font-medium">Outreach Campaigns</span>
-            </a>
-            <!-- Agent Lab -->
-            <a href="index.php?tab=agent" id="tab-agent-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
-                <span class="text-xl group-hover:scale-110 transition">🧪</span>
-                <span class="hidden lg:block font-medium">AI Copywriting Lab</span>
-            </a>
-            <!-- Influencer Scout -->
-            <a href="index.php?tab=influencer" id="tab-influencer-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
-                <span class="text-xl group-hover:scale-110 transition">🔍</span>
-                <span class="hidden lg:block font-medium">Find Influencers</span>
-            </a>
-            <!-- Mass Harvester -->
-            <a href="index.php?tab=mass" id="tab-mass-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
-                <span class="text-xl group-hover:scale-110 transition">🕸️</span>
-                <span class="hidden lg:block font-medium">Find Prospects</span>
-            </a>
-            <!-- Settings -->
-            <a href="index.php?tab=settings" id="tab-settings-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
-                <span class="text-xl group-hover:scale-110 transition">⚙️</span>
-                <span class="hidden lg:block font-medium">System Settings</span>
-            </a>
-            <!-- Diagnostics -->
-            <a href="index.php?tab=diagnostics" id="tab-diagnostics-btn" class="tab-btn w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5">
-                <span class="text-xl group-hover:scale-110 transition">🩺</span>
-                <span class="hidden lg:block font-medium">Diagnostics</span>
-            </a>
+            <?php endforeach; ?>
         </nav>
 
         <div class="w-full pt-4 border-t border-white/5 space-y-2">
+            <!-- Interface mode switch -->
+            <div class="px-1 pb-1">
+                <div class="hidden lg:block text-[10px] uppercase tracking-widest text-slate-500 px-2 mb-1.5">Interface mode</div>
+                <div class="flex rounded-xl bg-slate-900/60 border border-white/10 p-1 gap-1" role="group" aria-label="Interface mode">
+                    <button type="button" onclick="setUiMode('guided')" title="Guided mode — simplified for business owners"
+                        class="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-bold transition <?= $is_guided ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200' ?>">
+                        <span class="hidden lg:inline">Guided</span><span class="lg:hidden">G</span>
+                    </button>
+                    <button type="button" onclick="setUiMode('advanced')" title="Advanced mode — full marketer controls"
+                        class="flex-1 px-2 py-1.5 rounded-lg text-[11px] font-bold transition <?= !$is_guided ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200' ?>">
+                        <span class="hidden lg:inline">Advanced</span><span class="lg:hidden">A</span>
+                    </button>
+                </div>
+                <?php if (!$is_guided): ?>
+                <div class="hidden lg:block text-center text-[9px] uppercase tracking-widest text-amber-400/80 mt-1.5">Advanced mode</div>
+                <?php endif; ?>
+            </div>
             <div id="safety-indicator" class="hidden lg:flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-bold uppercase tracking-wider">
                 <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
                 Safety Active
@@ -72,7 +121,7 @@ require_once __DIR__ . '/includes/autoload.php';
             <form method="POST" action="logout.php" class="w-full">
                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(\App\Auth::csrfToken()) ?>">
                 <button type="submit" class="w-full flex items-center gap-4 px-4 py-3 rounded-xl transition group text-slate-400 hover:bg-white/5 hover:text-slate-200">
-                    <span class="text-xl group-hover:scale-110 transition">\U0001f6aa</span>
+                    <span class="text-xl group-hover:scale-110 transition">🚪</span>
                     <span class="hidden lg:block font-medium">Log out</span>
                 </button>
             </form>
@@ -96,43 +145,87 @@ require_once __DIR__ . '/includes/autoload.php';
             </div>
         </header>
 
+        <!-- Dashboard tab: KPIs + first-run checklist -->
+        <div id="dashboard-tab" class="tab-content">
+        <?php if ($is_guided && !$checklist_done): ?>
+            <div id="guided-checklist" class="mb-8 p-6 rounded-2xl bg-gradient-to-br from-blue-950/60 via-slate-900/50 to-slate-900/40 border border-blue-500/30 relative overflow-hidden">
+                <div class="flex items-start justify-between gap-4 mb-5">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-100">Get your first campaign running</h3>
+                        <p class="text-slate-400 text-xs mt-1">Four steps. Each one unlocks automatically when it's done.</p>
+                    </div>
+                    <button onclick="dismissChecklist()" class="text-slate-500 hover:text-slate-300 text-xs px-2 py-1" title="Dismiss">✕</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <?php
+                    $steps = [
+                        'ai'       => ['n' => 1, 'title' => 'Connect AI',            'desc' => 'Add an AI key so the app can write and personalize emails.', 'action' => "showTab('settings');focusSettingField('setting-gemini_api_key')", 'cta' => 'Connect'],
+                        'lead'     => ['n' => 2, 'title' => 'Add your first lead',   'desc' => 'Add a prospect manually, or find many at once in Discover.',          'action' => "showAddLeadModal()", 'cta' => 'Add lead'],
+                        'campaign' => ['n' => 3, 'title' => 'Create a campaign',     'desc' => 'A campaign is a sequence of follow-up emails sent automatically.',     'action' => "showNewCampaignModal()", 'cta' => 'Create'],
+                        'sender'   => ['n' => 4, 'title' => 'Set your sender identity','desc' => 'The name and email address your prospects will see.',                  'action' => "showTab('settings');focusSettingField('setting-email_sender')", 'cta' => 'Set up'],
+                    ];
+                    foreach ($steps as $key => $s):
+                        $done = $checklist[$key];
+                    ?>
+                    <div class="p-4 rounded-xl border <?= $done ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-white/[0.02] border-white/10' ?>">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-[10px] font-bold uppercase tracking-widest <?= $done ? 'text-emerald-400' : 'text-slate-500' ?>">Step <?= $s['n'] ?></span>
+                            <?php if ($done): ?><span class="text-emerald-400 text-sm">✓</span><?php endif; ?>
+                        </div>
+                        <h4 class="font-bold text-sm text-slate-200"><?= htmlspecialchars($s['title']) ?></h4>
+                        <p class="text-[11px] text-slate-400 mt-1 leading-relaxed"><?= htmlspecialchars($s['desc']) ?></p>
+                        <?php if (!$done): ?>
+                        <button onclick="<?= htmlspecialchars($s['action']) ?>" class="mt-3 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-[11px] font-bold text-white transition"><?= htmlspecialchars($s['cta']) ?> →</button>
+                        <?php endif; ?>
+                    </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+        <?php endif; ?>
+        <?php if ($is_guided): ?>
+            <div id="guided-hint" class="mb-8 p-4 rounded-2xl bg-white/[0.02] border border-white/10 flex items-center justify-between gap-4">
+                <p class="text-xs text-slate-400">You're in <strong class="text-slate-200">Guided mode</strong> — the essentials, without the clutter. Need the full marketer controls? Switch to <strong class="text-slate-200">Advanced</strong> below.</p>
+                <button onclick="dismissGuidedHint()" class="text-slate-500 hover:text-slate-300 text-xs shrink-0" title="Dismiss">✕</button>
+            </div>
+        <?php endif; ?>
         <!-- KPI Ribbon -->
         <div class="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
             <div class="glass p-4 rounded-2xl border-l-4 border-blue-500">
-                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Lead Funnel</div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1"><?= $is_guided ? 'Ready to contact' : 'Lead Funnel' ?></div>
                 <div id="stat-funnel_mailable" class="text-2xl font-bold">0</div>
-                <div id="funnel-detail" class="text-[10px] text-blue-500 mt-1 font-medium">Mailable = verified valid, not suppressed</div>
+                <div id="funnel-detail" class="text-[10px] text-blue-500 mt-1 font-medium"><?= $is_guided ? 'Verified and safe to email' : 'Mailable = verified valid, not suppressed' ?></div>
             </div>
             <div class="glass p-4 rounded-2xl border-l-4 border-purple-500">
-                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Interested Leads</div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1"><?= $is_guided ? 'Interested' : 'Interested Leads' ?></div>
                 <div id="stat-qualified" class="text-2xl font-bold">0</div>
-                <div id="conv-qualified" class="text-[10px] text-purple-500 mt-1 font-medium">Qualified — not necessarily verified</div>
+                <div id="conv-qualified" class="text-[10px] text-purple-500 mt-1 font-medium"><?= $is_guided ? 'Showed buying interest' : 'Qualified — not necessarily verified' ?></div>
             </div>
             <div class="glass p-4 rounded-2xl border-l-4 border-emerald-500">
-                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Conversations In Progress</div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1"><?= $is_guided ? 'Active replies' : 'Conversations In Progress' ?></div>
                 <div id="stat-contacted" class="text-2xl font-bold">0</div>
-                <div id="conv-contacted" class="text-[10px] text-emerald-500 mt-1 font-medium">Active Discussions</div>
+                <div id="conv-contacted" class="text-[10px] text-emerald-500 mt-1 font-medium"><?= $is_guided ? 'Prospects talking to you' : 'Active Discussions' ?></div>
             </div>
             <div class="glass p-4 rounded-2xl border-l-4 border-amber-500">
-                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Outreach Wins</div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1"><?= $is_guided ? 'Won' : 'Outreach Wins' ?></div>
                 <div id="stat-converted" class="text-2xl font-bold">0</div>
-                <div id="conv-converted" class="text-[10px] text-amber-500 mt-1 font-medium">Successfully Closed</div>
+                <div id="conv-converted" class="text-[10px] text-amber-500 mt-1 font-medium"><?= $is_guided ? 'Deals closed from outreach' : 'Successfully Closed' ?></div>
             </div>
             <div class="glass p-4 rounded-2xl border-l-4 border-rose-500">
-                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1">Outreach Status</div>
+                <div class="text-slate-500 text-[10px] uppercase font-bold tracking-widest mb-1"><?= $is_guided ? 'Sending status' : 'Outreach Status' ?></div>
                 <div id="supervisor-status" class="text-lg font-bold text-emerald-400">Active & Sending</div>
                 <div id="supervisor-last-check" class="text-[9px] text-slate-500 mt-1 truncate">All systems nominal</div>
             </div>
         </div>
+        </div><!-- /dashboard-tab -->
 
         <!-- Dynamic Content -->
-        <div id="leads-tab" class="tab-content grid grid-cols-1 xl:grid-cols-3 gap-8">
-            <div class="xl:col-span-2 space-y-6">
+        <div id="leads-tab" class="tab-content hidden">
+            <div class="space-y-6">
                 <!-- Advanced Search & Filter -->
                 <div class="glass p-4 rounded-2xl flex flex-col md:flex-row gap-4">
                     <div class="relative flex-1">
                         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">🔍</span>
-                        <input type="text" id="lead-search" onkeyup="searchLeads()" placeholder="Search deals, company, or intent signals..." class="w-full bg-slate-900/50 border border-white/5 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition">
+                        <input type="text" id="lead-search" onkeyup="searchLeads()" placeholder="Search leads, companies, or notes..." class="w-full bg-slate-900/50 border border-white/5 rounded-xl pl-10 pr-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition">
                     </div>
                     <div class="flex gap-2">
                         <select class="bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 text-sm outline-none">
@@ -153,7 +246,7 @@ require_once __DIR__ . '/includes/autoload.php';
                                     <input type="checkbox" id="leads-select-all" onchange="toggleSelectAll(this)" class="w-4 h-4 rounded accent-blue-500 cursor-pointer" title="Select all">
                                 </th>
                                 <th class="px-6 py-5">Organization & Contact</th>
-                                <th class="px-6 py-5">Pipeline Phase</th>
+                                <th class="px-6 py-5">Status</th>
                                 <th class="px-6 py-5">Intent Score</th>
                                 <th class="px-6 py-5">Quick Actions</th>
                                 <th class="px-6 py-5">Edit</th>
@@ -165,29 +258,6 @@ require_once __DIR__ . '/includes/autoload.php';
                     </table>
                 </div>
             </div>
-
-            <!-- Side Intelligence Panel -->
-            <aside class="space-y-6">
-                <div class="glass p-6 rounded-3xl border border-white/5">
-                    <div class="flex justify-between items-center mb-6">
-                        <h3 class="font-bold">Active Signal Queue</h3>
-                        <span class="px-2 py-1 rounded bg-blue-500/10 text-blue-400 text-[10px] font-bold">Live</span>
-                    </div>
-                    <div id="task-list" class="space-y-4 text-sm text-slate-500 italic text-center py-10">
-                        <div class="flex flex-col items-center gap-3">
-                            <span class="text-4xl grayscale opacity-20">📡</span>
-                            <p>Monitoring for intent signals...</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-gradient-to-br from-indigo-600/20 to-blue-600/20 p-6 rounded-3xl border border-blue-500/20 relative overflow-hidden group">
-                    <div class="absolute -right-4 -bottom-4 text-8xl opacity-10 group-hover:scale-110 transition-transform">🤖</div>
-                    <h3 class="font-bold text-white mb-2">Agent lab Insights</h3>
-                    <p class="text-slate-400 text-xs mb-4 leading-relaxed">Let your Extraction Expert and Intent Analyst prioritize your morning for you.</p>
-                    <button onclick="location.href='agent_lab.php'" class="w-full py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-500 transition">Open Lab</button>
-                </div>
-            </aside>
         </div>
 
         <!-- Other tabs... -->
@@ -208,8 +278,8 @@ require_once __DIR__ . '/includes/autoload.php';
         <div id="settings-tab" class="tab-content hidden glass p-8 rounded-3xl max-w-5xl mx-auto border border-white/5">
             <div class="flex items-center justify-between mb-8">
                 <div>
-                    <h2 class="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent">System & Integrations Settings</h2>
-                    <p class="text-slate-500 text-sm">Configure your outreach engine nodes, API credentials, and email channels</p>
+                    <h2 class="text-2xl font-bold bg-gradient-to-r from-white to-slate-400 bg-clip-text text-transparent"><?= $is_guided ? 'Settings' : 'System & Integrations Settings' ?></h2>
+                    <p class="text-slate-500 text-sm"><?= $is_guided ? 'Connect your tools and set how emails go out' : 'Configure your outreach engine nodes, API credentials, and email channels' ?></p>
                 </div>
                 <button onclick="saveSettings()" class="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-500/20 text-sm font-bold">Save Changes</button>
             </div>
@@ -222,8 +292,8 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="flex items-center gap-3">
                             <span class="text-2xl">🚀</span>
                             <div>
-                                <h3 class="text-lg font-bold text-slate-100 bg-gradient-to-r from-white to-slate-300 bg-clip-text">Outreach Setup Wizard</h3>
-                                <p class="text-slate-400 text-xs mt-0.5">Smarketer Pro dynamically tracks your credentials to ensure your AI Copywriter and Leads Harvester run seamlessly.</p>
+                                <h3 class="text-lg font-bold text-slate-100 bg-gradient-to-r from-white to-slate-300 bg-clip-text"><?= $is_guided ? 'Get set up' : 'Outreach Setup Wizard' ?></h3>
+                                <p class="text-slate-400 text-xs mt-0.5"><?= $is_guided ? 'Three connections make everything work. The app checks them live as you type.' : 'Smarketer Pro dynamically tracks your credentials to ensure your AI Copywriter and Leads Harvester run seamlessly.' ?></p>
                             </div>
                         </div>
                     </div>
@@ -288,8 +358,8 @@ require_once __DIR__ . '/includes/autoload.php';
                             <p class="text-[10px] text-slate-400 mt-1 leading-relaxed">Connect your own sending account (SendGrid, Resend, Amazon SES). Your account, your reputation — the app only sends through it.</p>
                         </div>
                         <div class="mt-4 flex items-center justify-between">
-                            <span class="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-                                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Active
+                            <span id="setup-step-email-status" class="text-[10px] text-slate-400 font-semibold flex items-center gap-1">
+                                <span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> Not set up
                             </span>
                             <button type="button" onclick="focusSettingField('setting-active_email_provider')" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-[10px] font-bold text-white transition">Configure</button>
                         </div>
@@ -304,8 +374,8 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="flex items-center gap-2 mb-2 pb-3 border-b border-white/5">
                             <span class="text-blue-500 text-lg">🤖</span>
                             <div>
-                                <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">AI Brain Node</h3>
-                                <p class="text-[10px] text-slate-500 mt-0.5">Primary intelligence engine for email drafting & personalization</p>
+                                <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400"><?= $is_guided ? 'Connect AI' : 'AI Brain Node' ?></h3>
+                                <p class="text-[10px] text-slate-500 mt-0.5"><?= $is_guided ? 'The AI that writes and personalizes your emails' : 'Primary intelligence engine for email drafting & personalization' ?></p>
                             </div>
                         </div>
 
@@ -331,7 +401,7 @@ require_once __DIR__ . '/includes/autoload.php';
                     </div>
 
                     <!-- Jev Decision Tier -->
-                    <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6">
+                    <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6 <?= $is_guided ? 'hidden' : '' ?>" data-guided="0">
                         <div class="flex items-center gap-2 mb-2 pb-3 border-b border-white/5">
                             <span class="text-violet-500 text-lg">⚡</span>
                             <div>
@@ -382,7 +452,7 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="flex items-center gap-2 mb-2 pb-3 border-b border-white/5">
                             <span class="text-indigo-500 text-lg">🔍</span>
                             <div>
-                                <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Prospect Search & OSINT Engine</h3>
+                                <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400"><?= $is_guided ? 'Find new prospects' : 'Prospect Search & OSINT Engine' ?></h3>
                                 <p class="text-[10px] text-slate-500 mt-0.5">Primary intelligence feeds for extracting B2B target intelligence</p>
                             </div>
                         </div>
@@ -427,8 +497,8 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="flex items-center gap-2 mb-2 pb-3 border-b border-white/5">
                             <span class="text-emerald-500 text-lg">📬</span>
                             <div>
-                                <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Core Outreach Gateways</h3>
-                                <p class="text-[10px] text-slate-500 mt-0.5">Target sending accounts and active outreach delivery channels</p>
+                                <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400"><?= $is_guided ? 'Email sending' : 'Core Outreach Gateways' ?></h3>
+                                <p class="text-[10px] text-slate-500 mt-0.5"><?= $is_guided ? 'How your emails get sent, and the address they come from' : 'Target sending accounts and active outreach delivery channels' ?></p>
                             </div>
                         </div>
 
@@ -730,7 +800,7 @@ require_once __DIR__ . '/includes/autoload.php';
                     </div>
 
                     <!-- Advanced Network & Proxy Settings Card -->
-                    <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6">
+                    <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6 <?= $is_guided ? 'hidden' : '' ?>" data-guided="0">
                         <div class="flex items-center gap-2 mb-2 pb-3 border-b border-white/5">
                             <span class="text-indigo-500 text-lg">🌐</span>
                             <div>
@@ -768,7 +838,7 @@ require_once __DIR__ . '/includes/autoload.php';
                     </div>
 
                 <!-- Global Logic -->
-                <div class="space-y-6">
+                <div class="space-y-6 <?= $is_guided ? 'hidden' : '' ?>" data-guided="0">
                     <div class="flex items-center gap-2 mb-2">
                         <span class="text-amber-500">🛡️</span>
                         <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Operational Integrity</h3>
@@ -790,7 +860,7 @@ require_once __DIR__ . '/includes/autoload.php';
             </div>
 
             <!-- Quota Monitor & Health Dashboard -->
-            <div class="mt-12 pt-10 border-t border-white/5 space-y-6">
+            <div class="mt-12 pt-10 border-t border-white/5 space-y-6 <?= $is_guided ? 'hidden' : '' ?>" data-guided="0">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <span class="text-indigo-400 text-lg">📊</span>
@@ -852,9 +922,15 @@ require_once __DIR__ . '/includes/autoload.php';
         document.addEventListener('DOMContentLoaded', () => {
             // Parse initial tab from query parameter
             const urlParams = new URLSearchParams(window.location.search);
+            const uiMode = document.body.dataset.uiMode || 'guided';
+            const advancedOnly = ['diagnostics', 'agent', 'influencer'];
             let tab = urlParams.get('tab');
-            if (!tab || !['leads', 'campaigns', 'settings', 'diagnostics', 'agent', 'influencer', 'mass'].includes(tab)) {
-                tab = 'leads';
+            if (!tab || !['dashboard', 'leads', 'campaigns', 'settings', 'diagnostics', 'agent', 'influencer', 'mass'].includes(tab)) {
+                tab = 'dashboard';
+            }
+            // Guided mode has no dead ends: advanced-only tabs redirect home.
+            if (uiMode === 'guided' && advancedOnly.includes(tab)) {
+                tab = 'dashboard';
             }
             showTab(tab);
 

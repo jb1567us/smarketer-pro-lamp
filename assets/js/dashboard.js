@@ -378,7 +378,9 @@ async function runSupervisorCheck() {
         const response = await fetch('api/system_audit.php');
         const data = await response.json();
 
-        if (data.database === "Healthy" && (!data.proxy || data.proxy.includes("Connected")) && (!data.storage || data.storage.includes("Healthy"))) {
+        // Proxies are optional: "Not configured (optional)" is neutral, not a warning.
+        const proxyOk = !data.proxy || data.proxy.includes("Connected") || data.proxy.includes("Not configured (optional)");
+        if (data.database === "Healthy" && proxyOk && (!data.storage || data.storage.includes("Healthy"))) {
             statusEl.innerText = "Healthy";
             statusEl.className = "text-xl font-bold text-emerald-400";
         } else {
@@ -1193,7 +1195,9 @@ async function fetchCampaigns() {
         const result = await response.json();
         if (result.success) {
             window.allCampaigns = result.data; // keep in sync
-            tab.innerHTML = result.data.length ? result.data.map(c => `
+            tab.innerHTML = result.data.length ? result.data.map(c => {
+                const metrics = c.metrics || { sent: 0, queued: 0, failed: 0 };
+                return `
                 <div class="glass p-6 rounded-2xl border-t-2 ${c.is_active ? 'border-blue-500' : 'border-slate-700'} flex flex-col gap-3">
                     <div class="flex items-start justify-between gap-2">
                         <div class="flex-1 min-w-0">
@@ -1207,6 +1211,11 @@ async function fetchCampaigns() {
                                 : 'bg-slate-800 border-white/10 text-slate-500 hover:text-white'}"
                             title="Toggle active">${c.is_active ? '● Active' : '○ Paused'}</button>
                     </div>
+                    <div class="flex items-center gap-4 text-xs text-slate-400 px-0.5" title="Email outcomes for this campaign">
+                        <span><strong class="text-slate-100 font-bold">${metrics.sent}</strong> sent</span>
+                        <span><strong class="text-slate-100 font-bold">${metrics.queued}</strong> queued</span>
+                        <span><strong class="text-slate-100 font-bold">${metrics.failed}</strong> failed</span>
+                    </div>
                     <div class="flex items-center gap-2 mt-auto">
                         <button onclick="viewTemplates(${c.id})" class="flex-1 text-center text-xs font-bold py-2 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 transition">📋 Manage Steps</button>
                         <button onclick="editCampaign(${c.id})" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition" title="Edit">⚙️</button>
@@ -1214,7 +1223,7 @@ async function fetchCampaigns() {
                             class="p-2 rounded-xl bg-rose-500/5 hover:bg-rose-500/20 text-rose-500/40 hover:text-rose-400 border border-rose-500/10 transition" title="Delete">🗑️</button>
                     </div>
                 </div>
-            `).join('') : '<div class="p-20 text-center text-slate-500 col-span-full">No campaigns found. Create your first sequence!</div>';
+            `; }).join('') : '<div class="p-20 text-center text-slate-500 col-span-full">No campaigns found. Create your first sequence!</div>';
         }
     } catch (e) {
         tab.innerHTML = '<div class="p-20 text-center text-red-400 col-span-full">Failed to load campaigns.</div>';
@@ -1222,7 +1231,13 @@ async function fetchCampaigns() {
 }
 
 function showTab(tabName) {
-    const tabs = ['leads', 'campaigns', 'settings', 'agent', 'influencer', 'mass'];
+    const tabs = ['dashboard', 'leads', 'campaigns', 'settings', 'agent', 'influencer', 'mass', 'diagnostics'];
+    // Guided mode: advanced-only tabs fall back to the dashboard (no dead ends).
+    const uiMode = (document.body && document.body.dataset.uiMode) || 'guided';
+    if (uiMode === 'guided' && ['diagnostics', 'agent', 'influencer'].includes(tabName)) {
+        tabName = 'dashboard';
+    }
+    if (!tabs.includes(tabName)) tabName = 'dashboard';
     tabs.forEach(t => {
         const el = document.getElementById(t + '-tab');
         const btn = document.getElementById('tab-' + t + '-btn');
@@ -1242,6 +1257,92 @@ function showTab(tabName) {
     if (tabName === 'agent' && typeof checkMode === 'function') checkMode();
     if (tabName === 'influencer' && typeof loadInfluencers === 'function') loadInfluencers();
     if (tabName === 'mass' && typeof loadProxySettings === 'function') loadProxySettings();
+    if (tabName === 'diagnostics' && typeof loadDiagnostics === 'function') loadDiagnostics();
+}
+
+// ---------------------------------------------------------------------------
+// UI modes: Guided (default) vs Advanced. The preference is persisted
+// server-side in the settings table; the page reloads so every label and
+// section renders correctly on first paint.
+// ---------------------------------------------------------------------------
+async function setUiMode(mode) {
+    if (!['guided', 'advanced'].includes(mode)) return;
+    const current = (document.body && document.body.dataset.uiMode) || 'guided';
+    if (mode === current) return;
+    try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const response = await fetch('api/settings.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify({ ui_mode: mode })
+        });
+        const result = await response.json();
+        if (!result.success) throw new Error(result.error || 'save failed');
+    } catch (e) {
+        alert('Could not switch modes: ' + e.message);
+        return;
+    }
+    const m = window.location.search.match(/[?&]tab=([a-z]+)/);
+    const tab = m ? m[1] : 'dashboard';
+    window.location.href = 'index.php?tab=' + tab;
+}
+
+function dismissChecklist() {
+    document.getElementById('guided-checklist')?.classList.add('hidden');
+}
+
+function dismissGuidedHint() {
+    document.getElementById('guided-hint')?.classList.add('hidden');
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics tab: one-click health check + paste-ready support report.
+// ---------------------------------------------------------------------------
+async function loadDiagnostics() {
+    const container = document.getElementById('diagnostics-results');
+    const reportEl = document.getElementById('diagnostics-report');
+    if (!container) return;
+    container.innerHTML = '<div class="p-8 text-center text-slate-500">Running checks…</div>';
+    const uiMode = (document.body && document.body.dataset.uiMode) || 'guided';
+    try {
+        const response = await fetch('api/system_audit.php');
+        const data = await response.json();
+        const skip = new Set(['timestamp']);
+        const rows = Object.entries(data)
+            .filter(([k]) => !skip.has(k))
+            .map(([k, v]) => {
+                const val = String(v);
+                const ok = /healthy|connected|optional/i.test(val);
+                const bad = /error|critical|failed/i.test(val);
+                const color = bad ? 'text-rose-400' : (ok ? 'text-emerald-400' : 'text-amber-400');
+                return `<div class="flex items-start justify-between gap-4 p-4 rounded-xl bg-white/[0.02] border border-white/5">
+                    <span class="text-sm font-bold text-slate-300 capitalize">${escapeHtml(k)}</span>
+                    <span class="text-sm ${color} text-right break-all">${escapeHtml(val)}</span>
+                </div>`;
+            }).join('');
+        container.innerHTML = rows || '<div class="p-8 text-center text-slate-500">No checks returned.</div>';
+        if (reportEl) {
+            const lines = [
+                `Smarketer Pro diagnostics — ${data.timestamp || 'unknown time'}`,
+                `UI mode: ${uiMode}`,
+                '',
+                ...Object.entries(data).filter(([k]) => !skip.has(k)).map(([k, v]) => `${k}: ${v}`),
+                '',
+                '(No passwords or API keys are included in this report.)'
+            ];
+            reportEl.value = lines.join('\n');
+        }
+    } catch (e) {
+        container.innerHTML = '<div class="p-8 text-center text-rose-400">Could not run checks. Is the app reachable?</div>';
+    }
+}
+
+function copyDiagnosticsReport() {
+    const reportEl = document.getElementById('diagnostics-report');
+    if (!reportEl || !reportEl.value) { alert('Run the checks first.'); return; }
+    navigator.clipboard.writeText(reportEl.value)
+        .then(() => alert('Report copied. Paste it into your forum post.'))
+        .catch(() => { reportEl.select(); document.execCommand('copy'); });
 }
 
 function getStatusClass(status) {
@@ -1445,6 +1546,17 @@ window.updateSetupProgress = function() {
         } else {
             emailCheck.className = 'px-2.5 py-1 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center gap-1';
             emailCheck.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Outreach: Unset';
+        }
+    }
+    // Step 3 card status must reflect the same reality (never hardcoded).
+    const stepEmail = document.getElementById('setup-step-email-status');
+    if (stepEmail) {
+        if (emailConnected) {
+            stepEmail.className = 'text-[10px] text-emerald-400 font-semibold flex items-center gap-1';
+            stepEmail.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Active';
+        } else {
+            stepEmail.className = 'text-[10px] text-slate-400 font-semibold flex items-center gap-1';
+            stepEmail.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-slate-500"></span> Not set up';
         }
     }
 };

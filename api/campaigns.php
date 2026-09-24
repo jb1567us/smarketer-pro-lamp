@@ -60,6 +60,34 @@ try {
         if ($method === 'GET') {
             $stmt = $pdo->query("SELECT * FROM campaigns ORDER BY created_at DESC");
             $data = $stmt->fetchAll();
+            // Attach per-campaign outcome metrics (fail-soft: any missing
+            // table/column yields zeros rather than breaking the endpoint).
+            foreach ($data as &$c) {
+                $cid = (int)($c['id'] ?? 0);
+                $c['metrics'] = ['sent' => 0, 'queued' => 0, 'failed' => 0];
+                if ($cid <= 0) continue;
+                try {
+                    $m = $pdo->prepare(
+                        "SELECT status, COUNT(*) AS n FROM email_logs WHERE campaign_id = ? GROUP BY status"
+                    );
+                    $m->execute([$cid]);
+                    foreach ($m->fetchAll() as $row) {
+                        if ($row['status'] === 'sent') $c['metrics']['sent'] = (int)$row['n'];
+                        elseif (in_array($row['status'], ['failed', 'bounced'], true)) $c['metrics']['failed'] += (int)$row['n'];
+                        elseif ($row['status'] === 'queued') $c['metrics']['queued'] += (int)$row['n'];
+                    }
+                    $q = $pdo->prepare(
+                        "SELECT COUNT(*) AS n FROM task_queue WHERE task_type = 'EmailOutreach' " .
+                        "AND status IN ('Pending','In Progress') " .
+                        "AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.campaign_id')) = CAST(? AS CHAR)"
+                    );
+                    $q->execute([$cid]);
+                    $c['metrics']['queued'] += (int)($q->fetch()['n'] ?? 0);
+                } catch (\Throwable $e) {
+                    // keep zeros
+                }
+            }
+            unset($c);
             echo json_encode([
                 'success' => true,
                 'data'    => $data,
