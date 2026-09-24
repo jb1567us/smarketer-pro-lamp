@@ -768,6 +768,70 @@ require_once __DIR__ . '/includes/autoload.php';
                     </div>
 
                 <!-- Global Logic -->
+                <!-- ITEM 1: Email Verification (MillionVerifier) -->
+                <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-5">
+                    <div class="flex items-center gap-2 pb-3 border-b border-white/5">
+                        <span class="text-emerald-500 text-lg">✅</span>
+                        <div>
+                            <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Email Verification (MillionVerifier)</h3>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Optional pre-send check — off by default</p>
+                        </div>
+                    </div>
+
+                    <div class="rounded-xl border border-white/5 bg-slate-900/40 p-4 space-y-2">
+                        <p class="text-[10px] text-slate-400 leading-relaxed">
+                            <span class="font-bold text-slate-300">What it checks:</span> each address is tested for mailbox deliverability signals —
+                            syntax, domain mail-server reachability, disposable (burner) domains, and an SMTP probe where possible.
+                            Addresses are classified <span class="font-bold text-emerald-400">valid</span> /
+                            <span class="font-bold text-rose-400">invalid</span> /
+                            <span class="font-bold text-amber-400">risky</span> (catch-all domain, mailbox unconfirmable) /
+                            <span class="text-slate-300">unknown</span> (provider could not decide).
+                        </p>
+                        <p class="text-[10px] text-slate-400 leading-relaxed">
+                            <span class="font-bold text-slate-300">What it costs:</span> checks consume <span class="font-bold text-slate-300">your own</span>
+                            MillionVerifier credits (their free plan covers evaluation; this software pays for nothing).
+                        </p>
+                        <p class="text-[10px] text-slate-400 leading-relaxed">
+                            <span class="font-bold text-slate-300">What it changes:</span> when enabled, sending is gated — addresses classified
+                            <span class="font-bold text-rose-400">invalid</span> are skipped and never mailed; <span class="font-bold text-amber-400">risky</span>
+                            addresses are blocked too unless you relax it later. The Leads funnel shows
+                            <span class="font-bold text-slate-300">"0 checked"</span> until verification is enabled.
+                        </p>
+                        <p class="text-[10px] text-amber-400/90 leading-relaxed">
+                            ⚠️ Honest limits: verification reduces bounces and protects your sending accounts. It does <span class="font-bold">not</span>
+                            guarantee an address is reachable, and it says nothing about inbox placement — an address can verify "valid" and still
+                            bounce or land in spam. "Unknown" means the provider was uncertain, not that the address is safe.
+                        </p>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Email Verification</label>
+                            <select id="setting-verification_required" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                <option value="0">Disabled (default)</option>
+                                <option value="1">Enabled — verify before send</option>
+                            </select>
+                            <p class="text-[9px] text-slate-500">Default: off. Enabling without a key changes nothing (the gate skips verification and logs a notice).</p>
+                        </div>
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between items-center">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">MillionVerifier API Key</label>
+                                <a href="https://millionverifier.com" target="_blank" class="text-[9px] text-blue-400 hover:text-blue-300 font-bold uppercase flex items-center gap-0.5">🔑 Get Key ↗</a>
+                            </div>
+                            <input type="password" id="setting-verification_api_key" placeholder="Paste your MillionVerifier key" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                            <p class="text-[9px] text-slate-500">Stored like your other API keys — never shown again after saving.</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <button type="button" onclick="testVerificationConnection()" class="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 transition border border-white/10 text-xs font-bold text-white shadow-lg">
+                            <span>⚡ Test MillionVerifier Connection</span>
+                        </button>
+                        <p class="text-[9px] text-slate-500 mt-1.5">Checks that your key is accepted and reports your remaining credit balance. Spends <span class="font-bold">no</span> verification credits.</p>
+                        <div id="verification-test-output" class="hidden mt-3"></div>
+                    </div>
+                </div>
+
                 <div class="space-y-6">
                     <div class="flex items-center gap-2 mb-2">
                         <span class="text-amber-500">🛡️</span>

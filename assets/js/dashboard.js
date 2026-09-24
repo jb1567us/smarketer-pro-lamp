@@ -1594,7 +1594,9 @@ async function saveSettings() {
         'postmark_api_key', 'mailersend_api_key', 'mailtrap_api_key', 'zoho_api_key', 'netcore_api_key',
         'sendpulse_smtp_pass', 'amazon_ses_smtp_pass', 'zoho_smtp_pass', 'netcore_smtp_pass',
         'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url',
-        'license_server_url', 'license_key'
+        'license_server_url', 'license_key',
+        // ITEM 1: email verification (MillionVerifier send gate)
+        'verification_required', 'verification_api_key'
     ];
     const settings = {};
     keys.forEach(k => {
@@ -1618,6 +1620,46 @@ async function saveSettings() {
         }
     } catch (e) {
         alert('Error saving settings');
+    }
+}
+
+/* ── ITEM 1: MillionVerifier connection test ──────────────────────────────
+ * Posts the (possibly unsaved) key from the settings field to
+ * api/verification_test.php. The server tests the key against
+ * MillionVerifier's credits endpoint — no verification credit is spent and
+ * the key is never echoed back in the response. */
+async function testVerificationConnection() {
+    const output = document.getElementById('verification-test-output');
+    const keyEl = document.getElementById('setting-verification_api_key');
+    if (!output) return;
+    output.classList.remove('hidden');
+    output.innerHTML = '<div class="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 text-xs text-slate-300 flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-blue-500 animate-ping"></span>Testing MillionVerifier connection…</div>';
+
+    const body = {};
+    const typedKey = keyEl ? keyEl.value.trim() : '';
+    if (typedKey) body.api_key = typedKey; // test-before-save; never persisted
+
+    try {
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const response = await fetch('api/verification_test.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+            body: JSON.stringify(body)
+        });
+        const result = await response.json();
+        const ok = !!result.success;
+        const msg = escapeHtml(result.message || result.error || 'Unknown response.');
+        output.innerHTML = `
+            <div class="p-4 rounded-xl border ${ok ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-rose-500/20 bg-rose-500/5'} flex items-start gap-2.5">
+                <span class="text-base leading-none">${ok ? '✅' : '❌'}</span>
+                <div>
+                    <div class="font-bold text-xs ${ok ? 'text-emerald-300' : 'text-rose-300'}">${ok ? 'Connection OK' : 'Connection Failed'}</div>
+                    <div class="text-[10px] text-slate-400 mt-0.5">${msg}</div>
+                    ${ok ? '<div class="text-[9px] text-slate-500 mt-1">Reminder: verification reduces bounces; it does not guarantee deliverability or inbox placement.</div>' : ''}
+                </div>
+            </div>`;
+    } catch (e) {
+        output.innerHTML = '<div class="p-4 rounded-xl border border-rose-500/20 bg-rose-500/5 text-xs text-rose-300">❌ Request failed: ' + escapeHtml(e.message) + '</div>';
     }
 }
 

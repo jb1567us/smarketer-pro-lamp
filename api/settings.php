@@ -48,6 +48,12 @@ const SETTINGS_ALLOWLIST = [
     'monitor_auto_pause', 'monitor_min_delivered',
     // Soft phone-home license lock. license_key is secret (redacted on read).
     'license_server_url', 'license_key',
+    // Email verification (ITEM 1). The send gate (includes/Compliance.php)
+    // reads these keys; default stays OFF ('verification_required' = '0').
+    // verification_api_key is secret by the `_api_key` suffix rule below —
+    // it is redacted on read exactly like the other provider keys.
+    'verification_required', 'verification_provider', 'verification_api_key',
+    'verification_risky_action', 'verification_strict', 'verification_cache_days',
 ];
 
 /**

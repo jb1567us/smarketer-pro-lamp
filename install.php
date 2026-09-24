@@ -147,6 +147,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['db_host'])) {
                 $licenseNotice = 'License check skipped (' . $e->getMessage() . ') — install continues normally.';
             }
 
+            // 5b. Seed email-verification defaults (ITEM 1). Verification stays
+            // OFF until the buyer enables it with their own MillionVerifier key.
+            try {
+                $verifySeed = $pdo->prepare("INSERT IGNORE INTO settings (setting_key, setting_value) VALUES (?, ?)");
+                foreach ([
+                    'verification_required' => '0',
+                    'verification_provider' => 'millionverifier',
+                    'verification_api_key' => '',
+                    'verification_risky_action' => 'block',
+                    'verification_strict' => '0',
+                    'verification_cache_days' => '30',
+                ] as $k => $v) {
+                    $verifySeed->execute([$k, $v]);
+                }
+            } catch (\Throwable $e) {
+                $errors[] = 'Could not seed verification defaults: ' . $e->getMessage();
+            }
+
             // 6. Lock the installer.
             file_put_contents($lockFile, gmdate('c'), LOCK_EX);
             $step = 'done';

@@ -61,15 +61,20 @@ try {
     $pdo->exec("CREATE TABLE settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB");
     $pdo->exec("CREATE TABLE leads (id INT AUTO_INCREMENT PRIMARY KEY, company_name VARCHAR(255) NOT NULL, contact_name VARCHAR(255), email VARCHAR(255) UNIQUE NOT NULL, website VARCHAR(255), status ENUM('New','Enriched','Contacted','Qualified','Unqualified','Converted') DEFAULT 'New', lead_score INT DEFAULT 0, source VARCHAR(100), notes TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB");
 
-    // Apply the REAL migration file verbatim via the mysql CLI (it uses
+    // Apply the REAL migration files verbatim via the mysql CLI (it uses
     // DELIMITER, which PDO cannot parse). Twice, to prove idempotency.
-    foreach (['2026-09-23-compliance.sql', '2026-09-23-compliance-gaps.sql'] as $mig) {
+    foreach (['2026-09-23-compliance.sql', '2026-09-23-compliance-gaps.sql', '2026-09-24-verification-ui.sql'] as $mig) {
         $migFile = escapeshellarg($repo . '/migrations/' . $mig);
         foreach ([1, 2] as $run) {
             $sh("mysql -u {$dbUser} -p{$dbPass} compliance_test < {$migFile}");
             ok(true, "{$mig} applies cleanly (run {$run})");
         }
     }
+    // ITEM 1: verification defaults seed OFF.
+    $vreq = $pdo->query("SELECT setting_value FROM settings WHERE setting_key = 'verification_required'")->fetchColumn();
+    ok($vreq === '0', 'verification migration seeds verification_required=0 (gate stays OFF)');
+    $vkey = (int)$pdo->query("SELECT COUNT(*) FROM settings WHERE setting_key = 'verification_api_key'")->fetchColumn();
+    ok($vkey === 1, 'verification migration seeds verification_api_key row');
     $cols = $pdo->query("SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA='compliance_test' AND TABLE_NAME='leads'")->fetchAll(PDO::FETCH_COLUMN);
     foreach (['consent_status','consent_proof','verification_status','verified_at','is_role_based','target_persona','email_source','source_url'] as $c) {
         ok(in_array($c, $cols, true), "leads has column {$c}");
