@@ -2,7 +2,8 @@
 /**
  * Cron Worker — Pseudo-Asynchronous Job Processor
  * 
- * Designed to be triggered by cPanel cron every 1-5 minutes:
+ * Designed to be triggered by cPanel cron every 5 minutes (minimum interval —
+ * faster schedules will bog down a shared server):
  *   php /home/user/public_html/b2b_outreach_lamp/cron_worker.php
  * 
  * Picks up pending jobs, processes them within PHP's max_execution_time,
