@@ -1,6 +1,6 @@
 # JEV Shadow-Mode Proof — smarketer-pro-lamp
 
-Date: 2026-09-23 | Harness: `tests/jev/shadow_proof.php` | 20 fixtures, scripted stub TypeSafe server (no real credits spent).
+Date: 2026-09-24 | Harness: `tests/jev/shadow_proof.php` | 20 fixtures, scripted stub TypeSafe server (no real credits spent).
 
 ## What was proven
 
