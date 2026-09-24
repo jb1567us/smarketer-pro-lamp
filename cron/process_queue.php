@@ -85,7 +85,7 @@ try {
     // AND a threshold breach), so existing users see no behavior change.
     $throttles = new \App\Throttles(new \App\DbThrottleStore($pdo));
     try {
-        $pauses = (new \App\SendMonitor(new \App\DbMonitorStore($pdo)))->run();
+        $pauses = (new \App\SendMonitor())->run(new \App\DbMonitorStore($pdo));
         foreach ($pauses as $summary) {
             echo "[LOG] Compliance monitor: {$summary}\n";
         }
