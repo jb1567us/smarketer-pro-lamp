@@ -152,7 +152,7 @@ final class BlockedCount
             if ($pdo instanceof \PDO) {
                 // Native PDO — the SQLite path used by tests.
                 $stmt = $pdo->query('PRAGMA table_info(campaigns)');
-                $rows = $stmt === false ? [] : $stmt->fetchAll(\PDO::FETCH_ASSOC);
+                $rows = $stmt === false ? [] : $stmt->fetchAll(PDO::FETCH_ASSOC);
                 foreach ($rows as $r) {
                     $names[] = (string)($r['name'] ?? '');
                 }

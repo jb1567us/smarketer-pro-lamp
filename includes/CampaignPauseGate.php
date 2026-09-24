@@ -79,7 +79,7 @@ final class CampaignPauseGate
                 if ($stmt !== false) {
                     $stmt->execute(array_values($needsLeadLookup));
                     $leadCampaign = [];
-                    foreach ($stmt->fetchAll(\PDO::FETCH_ASSOC) as $leadRow) {
+                    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $leadRow) {
                         $cid = (int)($leadRow['campaign_id'] ?? 0);
                         $leadCampaign[(int)$leadRow['id']] = $cid > 0 ? $cid : null;
                     }
@@ -125,7 +125,7 @@ final class CampaignPauseGate
             }
             $stmt->execute($ids);
             $paused = [];
-            foreach ($stmt->fetchAll(\PDO::FETCH_COLUMN) as $id) {
+            foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $id) {
                 $paused[(int)$id] = true;
             }
             return $paused;
@@ -209,7 +209,7 @@ final class CampaignPauseGate
                 return null;
             }
             $stmt->execute([$campaignId]);
-            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$row || ($row['status'] ?? '') !== 'paused') {
                 return null;
             }
