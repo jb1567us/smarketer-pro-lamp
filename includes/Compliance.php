@@ -540,14 +540,18 @@ class Compliance
     ): void {
         $to = trim($to);
 
-        // Cache hit: a non-'unknown' verdict younger than cacheDays needs no new lookup.
+        // Cache hit: a non-'unknown' verdict younger than cacheDays needs no new
+        // lookup — but the cached verdict is still ENFORCED (ITEM2: a cached
+        // 'invalid' must refuse the send, otherwise bulk-verify's invalid
+        // verdicts would be decorative for cacheDays after checking).
         if ($cacheDays > 0 && is_array($lead)) {
             $cached = $lead['verification_status'] ?? 'unknown';
             $checkedAt = $lead['verified_at'] ?? null;
             if ($cached !== 'unknown' && is_string($checkedAt) && $checkedAt !== '') {
                 $age = time() - (int)strtotime($checkedAt);
                 if ($age >= 0 && $age < $cacheDays * 86400) {
-                    return; // fresh cached verdict — provider not called
+                    self::enforceCachedVerdict($to, $cached, $riskyAction, $strict);
+                    return; // fresh cached verdict enforced — provider not called
                 }
             }
         }
@@ -597,6 +601,49 @@ class Compliance
         }
     }
     // ── end: Email verification gate (item 3) ────────────────────────────────────
+
+    /**
+     * ITEM2 — enforce a cached verification verdict without spending a lookup.
+     *
+     * A fresh cache hit previously returned without enforcing anything, so a
+     * lead marked 'invalid' (e.g. by bulk verify) could still be mailed for
+     * verification_cache_days after it was checked. The verdict is now honored:
+     * 'invalid' refuses, 'risky' follows verification_risky_action, 'valid'
+     * allows, and anything else defers to strict mode.
+     *
+     * @throws \App\Exceptions\OutreachException when the send must be blocked.
+     */
+    private static function enforceCachedVerdict(
+        string $to,
+        string $cached,
+        string $riskyAction,
+        bool $strict
+    ): void {
+        switch ($cached) {
+            case \App\Verification\EmailVerificationResult::VALID:
+                return;
+            case \App\Verification\EmailVerificationResult::INVALID:
+                throw new OutreachException(
+                    "Refusing to send to {$to}: email verification failed (status: invalid)."
+                );
+            case \App\Verification\EmailVerificationResult::RISKY:
+                if ($riskyAction === 'block') {
+                    throw new OutreachException(
+                        "Refusing to send to {$to}: email verification returned 'risky' and " .
+                        "'verification_risky_action' is set to block."
+                    );
+                }
+                return;
+            default:
+                if ($strict) {
+                    throw new OutreachException(
+                        "Refusing to send to {$to}: email could not be verified and strict " .
+                        "verification mode is on."
+                    );
+                }
+                return;
+        }
+    }
 
     /**
      * Mandatory identity footer, appended to every outgoing message.

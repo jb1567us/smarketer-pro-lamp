@@ -53,6 +53,14 @@ class TaskProcessor
         }
 
         try {
+            // ITEM2 - bulk-verify jobs are queue-backed batch jobs, not
+            // per-lead actions: they manage their own cursor in the task
+            // payload and park themselves back to 'Pending' between batches.
+            if ($task['task_type'] === \App\BulkVerifyJob::TASK_TYPE) {
+                \App\BulkVerifyJob::run($this->pdo, $taskId);
+                return;
+            }
+
             $action = $this->getActionFactory($task['task_type']);
             
             if (!$action) {

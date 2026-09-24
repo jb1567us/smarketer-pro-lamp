@@ -59,9 +59,9 @@ CREATE TABLE IF NOT EXISTS templates (
 CREATE TABLE IF NOT EXISTS task_queue (
     id INT AUTO_INCREMENT PRIMARY KEY,
     lead_id INT,
-    task_type ENUM('Enrichment', 'EmailOutreach', 'SocialOutreach', 'Qualify', 'Enrich', 'Draft') NOT NULL,
+    task_type ENUM('Enrichment', 'EmailOutreach', 'SocialOutreach', 'Qualify', 'Enrich', 'Draft', 'BulkVerify') NOT NULL,
     payload JSON,
-    status ENUM('Pending', 'In Progress', 'Completed', 'Failed') DEFAULT 'Pending',
+    status ENUM('Pending', 'In Progress', 'Completed', 'Failed', 'Cancelled') DEFAULT 'Pending',
     scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     processed_at TIMESTAMP NULL,
     retry_count INT DEFAULT 0,
