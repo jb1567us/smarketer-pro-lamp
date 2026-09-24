@@ -216,6 +216,8 @@ try {
         // Phase 0 fix (was critical defect C4): this used to route through
         // EmailDraftingAgent's two hardcoded templates ("not AI"). It now
         // runs the real LLM draft action, scoped to the lead's own campaign.
+        // Phase 2: the draft goes through the JEV review loop (shadow-safe:
+        // in off/shadow mode the draft lands in the human queue unchanged).
         if ($action === 'draft') {
             $id = (int)($_GET['id'] ?? 0);
             if ($id <= 0) leads_error(400, 'Missing lead id');
@@ -224,7 +226,8 @@ try {
                     $pdo,
                     new \App\Routers\SmartLLMRouter($pdo)
                 );
-                $draft = $drafter->buildDraft($id);
+                $result = $drafter->buildAndReview($id);
+                $draft = $result['draft'];
             } catch (\App\Exceptions\OutreachException $e) {
                 // Buyer-actionable failures (no campaign, no templates, LLM
                 // error): 502 with the message, not a bare 500.
@@ -238,7 +241,27 @@ try {
                 'body' => $draft['body'],
                 'campaign_id' => $draft['campaign_id'],
                 'campaign_name' => $draft['campaign_name'],
+                'draft_id' => $draft['draft_id'],
+                'review' => $result['review'],
             ]);
+            exit;
+        }
+
+        // Phase 2: list a lead's drafts for the lead drawer (M1 fix — drafts
+        // were previously only visible buried inside lead notes).
+        if ($action === 'drafts') {
+            $id = (int)($_GET['id'] ?? 0);
+            if ($id <= 0) leads_error(400, 'Missing lead id');
+            $stmt = $pdo->prepare(
+                'SELECT d.id, d.subject, d.body, d.status, d.reviewer_notes, d.attempts, d.created_at,
+                        c.name AS campaign_name
+                 FROM drafts d
+                 LEFT JOIN campaigns c ON c.id = d.campaign_id
+                 WHERE d.lead_id = ?
+                 ORDER BY d.id DESC'
+            );
+            $stmt->execute([$id]);
+            echo json_encode(['success' => true, 'data' => $stmt->fetchAll(\App\PDO::FETCH_ASSOC)]);
             exit;
         }
 

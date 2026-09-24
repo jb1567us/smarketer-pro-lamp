@@ -86,6 +86,24 @@ class DecisionTier
      * Lazily builds (and caches) the shared JevProvider. Returns null when
      * unusable (missing key, network misconfiguration, ...).
      */
+    /**
+     * Build a one-off provider with a caller-specified timeout. Used for
+     * per-decision timeout overrides; the shared cached provider is
+     * untouched. Returns null when Jev is unavailable (fail-closed: the
+     * caller falls back to the legacy path).
+     */
+    private static function providerWithTimeout(int $timeout): ?JevProvider
+    {
+        $cfg = self::config();
+        try {
+            $apiKey = self::setting('jev_api_key', '') ?: null;
+            return new JevProvider($apiKey, $cfg['model'], $cfg['base_url'], $timeout);
+        } catch (\Throwable $e) {
+            error_log('[DecisionTier] Jev unavailable (timeout override): ' . $e->getMessage());
+            return null;
+        }
+    }
+
     public static function getProvider(): ?JevProvider
     {
         if (!self::$providerAttempted) {
@@ -143,10 +161,18 @@ class DecisionTier
         array $questions,
         callable $llmFallback,
         ?callable $extract = null,
-        ?callable $agree = null
+        ?callable $agree = null,
+        ?int $timeoutOverride = null
     ) {
         $mode = self::mode();
-        $provider = $mode === 'off' ? null : self::getProvider();
+        // A per-decision timeout override (e.g. the draft reviewer's <=8s
+        // budget) builds a dedicated provider instead of reusing the cached
+        // one, so one decision's urgency never changes the global timeout.
+        if ($timeoutOverride !== null && $mode !== 'off') {
+            $provider = self::providerWithTimeout($timeoutOverride);
+        } else {
+            $provider = $mode === 'off' ? null : self::getProvider();
+        }
 
         if ($mode === 'off' || $provider === null) {
             return $llmFallback();

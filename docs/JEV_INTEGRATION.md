@@ -68,9 +68,21 @@ code that runs. No deployment needed.
 
 ## Current integration status
 
-Only `QualifyLeadAction::decideQualification()` is routed through the tier
-(decision name `qualify_lead.decide_qualification`, questions `qualified`
-[noul] + `score` [0–100], agreement = same verdict and score within 15).
+Two decision points are routed through the tier:
+
+1. `qualify_lead.decide_qualification` — questions `qualified` [noul] +
+   `score` [0–100]; agreement = same verdict and score within 15.
+2. `draft_review.review_draft` (Phase 2) — `ReviewDraftAction` reviews each
+   generated draft: questions `approved` [noul] + `score` [0–100] with
+   descriptive criteria (the vendor requires `criteria` on score questions).
+   Live behavior: approve → draft marked `approved`; reject → regenerate
+   with LLM-written feedback (max 2 regenerations), then escalate to human
+   review with the reason attached. Any JEV error/timeout/low-confidence
+   verdict fails closed to human review — the reviewer can never silently
+   approve. The review call uses a per-decision 8s timeout via
+   `DecisionTier::decide(..., $timeoutOverride)`; drafts persist in the
+   `drafts` table and render in the lead drawer.
+
 Additional decision points should be wired one at a time, each with its own
 stable decision name, and each proven in shadow mode first.
 

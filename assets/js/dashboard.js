@@ -410,13 +410,23 @@ async function viewLead(id) {
             <div class="h-4 w-px bg-white/10"></div>
             <div>Email: <span class="text-white">${escapeHtml(lead.email || 'N/A')}</span></div>
         </div>
-        <div class="flex-1 overflow-y-auto p-6 space-y-6" id="drawer-traces-container">
-            <div class="text-center py-12">
-                <span class="text-2xl animate-spin inline-block mb-3">⌛</span>
-                <p class="text-slate-400 text-sm">Loading AI Explainability Traces...</p>
+        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+            <div id="drawer-drafts-container">
+                <div class="text-center py-8">
+                    <span class="text-2xl animate-spin inline-block mb-3">⌛</span>
+                    <p class="text-slate-400 text-sm">Loading drafts...</p>
+                </div>
+            </div>
+            <div id="drawer-traces-container">
+                <div class="text-center py-12">
+                    <span class="text-2xl animate-spin inline-block mb-3">⌛</span>
+                    <p class="text-slate-400 text-sm">Loading AI Explainability Traces...</p>
+                </div>
             </div>
         </div>
     `;
+
+    loadLeadDrafts(id);
 
     // Slide in the drawer
     drawer.classList.remove('hidden');
@@ -473,6 +483,65 @@ async function viewLead(id) {
         document.getElementById('drawer-traces-container').innerHTML = `
             <div class="text-center py-12 text-rose-400 text-sm">
                 ⚠️ Failed to load decision traces.
+            </div>
+        `;
+    }
+}
+
+async function loadLeadDrafts(id) {
+    const container = document.getElementById('drawer-drafts-container');
+    if (!container) return;
+    const badge = (status) => {
+        const map = {
+            approved: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+            needs_human: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+            pending_review: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+        };
+        const cls = map[status] || 'text-slate-400 bg-slate-500/10 border-slate-500/20';
+        const label = (status || 'unknown').replace(/_/g, ' ');
+        return `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${cls}">${escapeHtml(label)}</span>`;
+    };
+    try {
+        const response = await fetch(`api/leads.php?action=drafts&id=${id}`);
+        const result = await response.json();
+        if (result.success && result.data && result.data.length > 0) {
+            container.innerHTML = `
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-emerald-400">✉️</span>
+                    <h4 class="text-xs uppercase font-bold tracking-wider text-slate-400">Outreach Drafts (${result.data.length})</h4>
+                </div>
+                <div class="space-y-4">
+                    ${result.data.map(d => `
+                        <div class="glass p-5 rounded-2xl border border-white/5 space-y-3 relative overflow-hidden">
+                            <div class="absolute top-0 left-0 w-1 h-full ${d.status === 'approved' ? 'bg-emerald-500' : d.status === 'needs_human' ? 'bg-rose-500' : 'bg-amber-500'}"></div>
+                            <div class="flex justify-between items-start gap-2">
+                                <div class="text-sm font-bold text-white">${escapeHtml(d.subject || '(no subject)')}</div>
+                                ${badge(d.status)}
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-mono">v${d.attempts || 1} · ${escapeHtml(d.campaign_name || '')} · ${escapeHtml(d.created_at || '')}</div>
+                            <pre class="bg-slate-950/40 p-3 rounded-lg text-[11px] text-slate-300 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed border border-white/5">${escapeHtml(d.body || '')}</pre>
+                            ${d.reviewer_notes ? `
+                                <div>
+                                    <div class="text-[10px] uppercase font-bold text-slate-500 mb-1">Reviewer notes</div>
+                                    <div class="text-[11px] text-slate-400 leading-relaxed">${escapeHtml(d.reviewer_notes)}</div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="text-center py-8 px-4">
+                    <div class="text-3xl mb-2">✉️</div>
+                    <p class="text-xs text-slate-500">No drafts yet for this lead.</p>
+                </div>
+            `;
+        }
+    } catch (e) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-rose-400 text-sm">
+                ⚠️ Failed to load drafts.
             </div>
         `;
     }

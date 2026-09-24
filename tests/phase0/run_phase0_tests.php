@@ -60,6 +60,10 @@ try {
     $pdo->exec("CREATE TABLE templates (id INT AUTO_INCREMENT PRIMARY KEY, campaign_id INT NOT NULL, subject VARCHAR(500), body TEXT, step_order INT DEFAULT 1) ENGINE=InnoDB");
     $pdo->exec("CREATE TABLE leads (id INT AUTO_INCREMENT PRIMARY KEY, company_name VARCHAR(255) NOT NULL, contact_name VARCHAR(255), email VARCHAR(255) UNIQUE NOT NULL, website VARCHAR(255), status VARCHAR(50) DEFAULT 'New', lead_score INT DEFAULT 0, notes TEXT, campaign_id INT NULL) ENGINE=InnoDB");
     $pdo->exec("CREATE TABLE task_queue (id INT AUTO_INCREMENT PRIMARY KEY, lead_id INT, task_type ENUM('Enrichment','EmailOutreach','SocialOutreach','Qualify','Enrich','Draft') NOT NULL, status ENUM('Pending','In Progress','Completed','Failed') DEFAULT 'Pending', scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB");
+    // Phase 2: buildDraft() persists every draft to the drafts table.
+    $mig = file_get_contents(dirname(__DIR__, 2) . '/migrations/2026-09-24-draft-reviewer.sql');
+    if ($mig === false) { throw new RuntimeException('draft-reviewer migration missing'); }
+    $pdo->exec($mig);
 
     // Seed: two campaigns with DIFFERENT templates (the C1 regression trap).
     $pdo->exec("INSERT INTO campaigns (name) VALUES ('Product Insights Pilot'), ('Other Campaign')");
