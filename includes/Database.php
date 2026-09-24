@@ -45,7 +45,7 @@ class Database
         // or the environment. Never commit a password literal here.
         if ($pass === false || $pass === '' || $name === '' || $user === '') {
             throw new OutreachException(
-                'Database is not configured. Run install.php in your browser, ' .
+                'Database is not configured. Re-run the installer, ' .
                 'or set the DB_HOST / DB_NAME / DB_USER / DB_PASS environment variables.'
             );
         }

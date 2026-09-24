@@ -110,7 +110,17 @@ INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
 -- Soft phone-home license lock: empty URL = licensing disabled entirely.
 ('license_server_url', ''),
 -- SES region selector (Item 3): validated SES SMTP region, default us-east-1.
-('ses_region', 'us-east-1');
+('ses_region', 'us-east-1'),
+-- Email verification (Item 1): stays OFF by default ('verification_required' = '0');
+-- the buyer enables it with their own MillionVerifier key in Settings.
+('verification_required', '0'),
+('verification_provider', 'millionverifier'),
+('verification_api_key', ''),
+('verification_risky_action', 'block'),
+('verification_strict', '0'),
+('verification_cache_days', '30'),
+-- TrustScorer harvest-time DNS kill-switch (Item 4): '1' = DNS checks on.
+('trustscorer_harvest_dns', '1');
 
 -- Influencers: Social media candidates
 CREATE TABLE IF NOT EXISTS influencers (
