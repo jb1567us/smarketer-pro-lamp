@@ -141,6 +141,14 @@ try {
         check("leads.{$c} from fresh schema", in_array($c, $cols, true));
     }
 
+    // 4b. Email-verification defaults seeded OFF by the installer (ITEM 1).
+    $vreq = [];
+    exec("mysql -u {$dbUser} -p{$dbPass} -N -e \"SELECT setting_value FROM {$dbName}.settings WHERE setting_key='verification_required'\" 2>/dev/null", $vreq);
+    check('verification_required seeded OFF (0) by installer', in_array('0', $vreq, true), implode(',', $vreq));
+    $vkey = [];
+    exec("mysql -u {$dbUser} -p{$dbPass} -N -e \"SELECT COUNT(*) FROM {$dbName}.settings WHERE setting_key='verification_api_key'\" 2>/dev/null", $vkey);
+    check('verification_api_key row seeded by installer', in_array('1', $vkey, true));
+
     // 5. The written config actually connects and the app boots
     $boot = $get('/unsubscribe.php?token=bogus');
     check('app boots on installed config (unsubscribe page)', stripos($boot, 'Unsubscribe') !== false && stripos($boot, 'Fatal error') === false);
