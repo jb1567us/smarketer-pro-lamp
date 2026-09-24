@@ -105,8 +105,15 @@ try {
     $activeProvider = (string)($throttles->getStore()->getSetting('active_email_provider', 'smtp') ?: 'smtp');
 
     // Fetch pending tasks (task_type + payload are needed for the throttle gate)
-    $stmt = $pdo->query("SELECT id, task_type, payload FROM task_queue WHERE status = 'Pending' AND scheduled_at <= NOW() ORDER BY scheduled_at ASC LIMIT 10");
-    $tasks = $stmt->fetchAll();
+    $stmt = $pdo->query("SELECT id, task_type, payload, lead_id FROM task_queue WHERE status = 'Pending' AND scheduled_at <= NOW() ORDER BY scheduled_at ASC LIMIT 10");
+    $tasks = $stmt->fetchAll();
+
+    // FIX 4 -- paused-campaign gate. One batched lookup per tick: send tasks
+    // whose owning campaign is paused (is_active=0, auto or manual) are HELD
+    // -- left Pending, never claimed, no attempt burned, no blocked-send
+    // count -- so they resume automatically on unpause. Other campaigns'
+    // tasks in the same tick are unaffected.
+    $heldTaskIds = \App\CampaignPauseGate::holdTaskIds($pdo, $tasks);
 
     if (empty($tasks)) {
         echo "[LOG] No pending tasks found.\n";
@@ -115,6 +122,15 @@ try {
     foreach ($tasks as $row) {
         $taskId = (int)$row['id'];
         $taskType = (string)($row['task_type'] ?? '');
+
+        // FIX 4: paused campaign -- hold the task. It is NOT claimed,
+        // NOT failed, burns no attempt, and is NOT counted as a blocked
+        // send. It stays Pending and resumes on the next tick after the
+        // campaign is reactivated.
+        if (isset($heldTaskIds[$taskId])) {
+            echo "[LOG] Task {$taskId} held: campaign is paused (queued sends resume on unpause).\n";
+            continue;
+        }
 
         // Throttle gate: before a send task is processed, check the three
         // caps (campaign daily / provider daily / global per-minute). When a

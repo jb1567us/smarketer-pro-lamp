@@ -90,3 +90,28 @@ function campaignBlockedHtml(c) {
         `</div>`;
 }
 /* ITEM-A-BLOCKED-END */
+
+/* ITEM-FIX4-PAUSED-START */
+/**
+ * Render a "paused" banner for one campaign card.
+ *
+ * A paused campaign (manual toggle or compliance auto-pause) HOLDS its
+ * queued sends: they are not processed, not counted as blocked, and resume
+ * automatically on reactivation. Without this line the card would show
+ * sends "not going out" with no reason -- the same UX bug ITEM A fixed.
+ * Returns '' when the campaign is active.
+ */
+function campaignPausedHtml(c) {
+    if (!c || typeof c !== 'object') return '';
+    if (c.is_active) return '';
+    const esc = (typeof escapeHtml === 'function') ? escapeHtml : (s) => String(s);
+    let line;
+    if (c.status === 'paused' && c.paused_reason) {
+        line = `Auto-paused: ${esc(c.paused_reason)} &mdash; queued sends are held and will resume when you fix the issue and reactivate this campaign.`;
+    } else {
+        line = 'Paused &mdash; queued sends are held and will resume when you reactivate this campaign.';
+    }
+    return `<div class="rounded-xl border border-amber-500/20 bg-amber-500/5 px-3 py-2.5">` +
+        `<div class="text-xs font-bold text-amber-300">&#9208; ${line}</div></div>`;
+}
+/* ITEM-FIX4-PAUSED-END */
