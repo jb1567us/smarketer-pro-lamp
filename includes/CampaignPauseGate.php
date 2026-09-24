@@ -162,6 +162,65 @@ final class CampaignPauseGate
     }
 
     /**
+     * Manual-send enforcement: refuse a one-off send when its campaign is
+     * paused (api/send_email.php calls this). Throws a buyer-facing
+     * RuntimeException naming the pause; the auto-pause reason is appended
+     * when the compliance monitor set one. Never throws on lookup failure
+     * (fail-open, same convention as the queue gate) and never throws when
+     * there is no campaign context.
+     *
+     * Deliberately NOT recorded in BlockedCount: this refusal is synchronous
+     * and the buyer sees the reason immediately in the UI. BlockedCount
+     * exists for queue-side refusals where the buyer would otherwise wonder
+     * why sends silently didn't go out.
+     *
+     * @param object $pdo \App\PDO in production, native \PDO in tests.
+     * @throws \RuntimeException when the campaign is paused.
+     */
+    public static function throwIfPaused($pdo, ?int $campaignId): void
+    {
+        if ($campaignId === null || $campaignId <= 0) {
+            return;
+        }
+        $paused = self::pausedIds($pdo, [$campaignId]); // never throws
+        if (!isset($paused[$campaignId])) {
+            return;
+        }
+        $reason = self::pauseReason($pdo, $campaignId); // never throws
+        $msg = 'This campaign is paused — manual sends are held until you reactivate it.';
+        if ($reason !== null && $reason !== '') {
+            $msg .= ' Pause reason: ' . $reason;
+        }
+        throw new \RuntimeException($msg);
+    }
+
+    /**
+     * The compliance monitor's pause reason (campaigns.paused_reason) when
+     * the pause was automatic; null for manual pauses or when the columns
+     * don't exist yet (pre-migration). Never throws.
+     */
+    private static function pauseReason($pdo, int $campaignId): ?string
+    {
+        try {
+            $stmt = $pdo->prepare(
+                "SELECT status, paused_reason FROM campaigns WHERE id = ? LIMIT 1"
+            );
+            if ($stmt === false) {
+                return null;
+            }
+            $stmt->execute([$campaignId]);
+            $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+            if (!$row || ($row['status'] ?? '') !== 'paused') {
+                return null;
+            }
+            $reason = trim((string)($row['paused_reason'] ?? ''));
+            return $reason !== '' ? $reason : null;
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
      * Extract campaign_id from a task payload (JSON string or array).
      * Returns null when absent/invalid — never throws.
      */

@@ -138,5 +138,47 @@ for ($i = 0; $i < 2; $i++) $ids[] = insertTask($pdo, 'EmailOutreach', json_encod
 $held = CampaignPauseGate::holdTaskIds($pdo, pendingRows($pdo));
 ok(count($held) === 3, 'exactly the 3 paused-campaign tasks held, other 2 unaffected');
 
+/* ── 10. throwIfPaused: manual sends blocked for paused campaigns ─── */
+$pdo = freshDb();
+$pdo->exec("ALTER TABLE campaigns ADD COLUMN paused_reason TEXT");
+$active = (int)$pdo->query("SELECT id FROM campaigns WHERE name='Active Co'")->fetchColumn();
+$paused = (int)$pdo->query("SELECT id FROM campaigns WHERE name='Paused Co'")->fetchColumn();
+$pdo->exec("UPDATE campaigns SET paused_reason = 'bounce rate exceeded' WHERE id = {$paused}");
+
+$thrown = null;
+try { CampaignPauseGate::throwIfPaused($pdo, $paused); }
+catch (\RuntimeException $e) { $thrown = $e->getMessage(); }
+ok($thrown !== null && stripos($thrown, 'paused') !== false, 'manual send refused for paused campaign');
+ok($thrown !== null && strpos($thrown, 'bounce rate exceeded') !== false, 'auto-pause reason included in refusal message');
+
+$thrown = null;
+try { CampaignPauseGate::throwIfPaused($pdo, $active); }
+catch (\RuntimeException $e) { $thrown = $e->getMessage(); }
+ok($thrown === null, 'manual send allowed for active campaign');
+
+$thrown = null;
+try { CampaignPauseGate::throwIfPaused($pdo, null); CampaignPauseGate::throwIfPaused($pdo, 0); }
+catch (\RuntimeException $e) { $thrown = $e->getMessage(); }
+ok($thrown === null, 'no campaign context = no gate (fail-open)');
+
+$pdo->exec("UPDATE campaigns SET is_active = 0, status = 'active', paused_reason = NULL WHERE id = {$active}"); // manual pause
+$thrown = null;
+try { CampaignPauseGate::throwIfPaused($pdo, $active); }
+catch (\RuntimeException $e) { $thrown = $e->getMessage(); }
+ok($thrown !== null && strpos($thrown, 'Pause reason:') === false, 'manual pause refused without a reason suffix');
+
+$pdo = freshDb(); // no paused_reason column at all: reason lookup must not fatal
+$paused = (int)$pdo->query("SELECT id FROM campaigns WHERE name='Paused Co'")->fetchColumn();
+$thrown = null;
+try { CampaignPauseGate::throwIfPaused($pdo, $paused); }
+catch (\RuntimeException $e) { $thrown = $e->getMessage(); }
+ok($thrown !== null && stripos($thrown, 'paused') !== false, 'refusal works pre-migration (no paused_reason column)');
+
+$pdo->exec("DROP TABLE campaigns");
+$thrown = null;
+try { CampaignPauseGate::throwIfPaused($pdo, $paused); }
+catch (\RuntimeException $e) { $thrown = $e->getMessage(); }
+ok($thrown === null, 'gate fails open when campaign lookup errors');
+
 echo "\n{$passed} passed, {$failed} failed\n";
 exit($failed > 0 ? 1 : 0);

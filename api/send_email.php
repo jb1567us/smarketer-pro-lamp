@@ -63,6 +63,13 @@ try {
     if (empty($to)) {
         throw new Exception("Lead does not have a valid email address");
     }
+    // Pause gate: a paused campaign blocks manual sends too, not just the
+    // queue drain. Throws a buyer-facing message naming the pause (and the
+    // auto-pause reason when the compliance monitor set one). Fail-open on
+    // lookup failure; no campaign context = no gate. Deliberately not
+    // BlockedCount-recorded: the refusal is synchronous and immediately
+    // visible, unlike queue-side refusals.
+    \App\CampaignPauseGate::throwIfPaused($pdo, $campaignId);
     if (\App\EmailSender::isPlaceholderAddress($to)) {
         // ITEM A: counted here — EmailSender::send() is never reached on
         // this path, so its own placeholder record() can't fire.

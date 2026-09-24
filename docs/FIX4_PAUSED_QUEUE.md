@@ -49,3 +49,14 @@ non-send task types never held, payload-vs-lead campaign resolution,
 missing campaign fail-open, lookup failure fail-open. Existing suites
 (compliance, licensing, sending, diagnostics, bulk verify, trustscorer,
 blocked counts, enum, JEV, queue stress) stay green.
+
+## Extension — manual sends are pause-gated too
+
+`api/send_email.php` (the one-off "Send Now" button) now calls
+`CampaignPauseGate::throwIfPaused()` after campaign attribution. A paused
+campaign refuses the manual send with a buyer-facing message naming the
+pause (plus the compliance monitor's reason when auto-paused). The refusal
+is synchronous and immediately visible in the UI, so it is deliberately NOT
+counted in BlockedCount — those counters exist for queue-side refusals
+where the buyer would otherwise wonder why sends silently didn't go out.
+Fail-open on lookup failure; no campaign context = no gate.
