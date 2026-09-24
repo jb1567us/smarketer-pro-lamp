@@ -332,35 +332,54 @@ class Diagnostics
     private static function smtpCredentials(string $provider, callable $getSetting): array
     {
         $g = fn(string $k): string => trim((string)($getSetting($k) ?? ''));
-        return [
+        $creds = [
             'host' => $g($provider . '_smtp_host') ?: $g('smtp_host'),
             'port' => (int)($g($provider . '_smtp_port') ?: $g('smtp_port') ?: '587'),
             'user' => $g($provider . '_smtp_user') ?: $g('smtp_user'),
             'pass' => $g($provider . '_smtp_pass') ?: $g('smtp_pass'),
             'enc'  => strtolower($g($provider . '_smtp_encryption') ?: $g('smtp_encryption') ?: 'tls'),
         ];
+        if ($provider === 'amazon_ses') {
+            // Item 3: region-aware SES check. An explicit amazon_ses_smtp_host
+            // still wins; otherwise probe the regional endpoint that
+            // EmailSender::sendViaSmtpSocket() will actually use (the old code
+            // fell back to the unrelated global smtp_host, or failed with
+            // "host missing" on default installs that send fine).
+            $region = \App\EmailSender::normalizeSesRegion($g('ses_region'));
+            if ($g('amazon_ses_smtp_host') === '') {
+                $creds['host'] = \App\EmailSender::sesSmtpHost($region);
+            }
+            $creds['ses_region'] = $region;
+        }
+        return $creds;
     }
 
     private static function checkSmtpProvider(string $provider, array $creds): array
     {
         $label = self::smtpProviders()[$provider];
+        // Item 3: name the SES region in results so a buyer can see at a
+        // glance which regional endpoint was probed.
+        $regionNote = ($provider === 'amazon_ses' && !empty($creds['ses_region']))
+            ? " (SES region: {$creds['ses_region']})" : '';
         try {
             $probe = self::$smtpProbe ?? [self::class, 'smtpLoginProbe'];
             $res = $probe($creds['host'], $creds['port'], $creds['enc'], $creds['user'], $creds['pass']);
             if (!empty($res['ok'])) {
                 return self::result('provider_' . $provider, self::STATUS_PASS,
                     'Email provider: ' . $label,
-                    "Logged in to the SMTP server {$creds['host']}:{$creds['port']} successfully. No mail was sent.",
+                    "Logged in to the SMTP server {$creds['host']}:{$creds['port']} successfully{$regionNote}. No mail was sent.",
                     'No action needed.');
             }
             return self::result('provider_' . $provider, self::STATUS_FAIL,
                 'Email provider: ' . $label,
-                "Could not log in to {$creds['host']}:{$creds['port']}: " . ($res['detail'] ?? 'unknown error'),
-                'Double-check the SMTP host, port, username, password and encryption (SSL/TLS) in Settings → Email. Passwords from your provider often differ from your login password — use the app/SMTP password they give you.');
+                "Could not log in to {$creds['host']}:{$creds['port']}{$regionNote}: " . ($res['detail'] ?? 'unknown error'),
+                $provider === 'amazon_ses'
+                    ? 'SES SMTP credentials are issued per region: the region selected in Settings → Email must be the one where you created the credentials in the AWS console. Also double-check the SMTP username, password and encryption (TLS on 587).'
+                    : 'Double-check the SMTP host, port, username, password and encryption (SSL/TLS) in Settings → Email. Passwords from your provider often differ from your login password — use the app/SMTP password they give you.');
         } catch (\Throwable $e) {
             return self::result('provider_' . $provider, self::STATUS_WARN,
                 'Email provider: ' . $label,
-                "Could not reach {$creds['host']}:{$creds['port']}: " . $e->getMessage(),
+                "Could not reach {$creds['host']}:{$creds['port']}{$regionNote}: " . $e->getMessage(),
                 'Make sure your host allows outbound SMTP (ports 25/587/465). Many shared hosts block these — ask your host to open them, or switch to an HTTP API provider (Resend, SendGrid, Brevo), which only needs port 443.');
         }
     }

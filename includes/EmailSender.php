@@ -19,6 +19,78 @@ class EmailSender
     }
 
     /**
+     * SES region selector (Item 3).
+     *
+     * AWS SES is region-scoped: SMTP credentials are issued per region and
+     * the SMTP endpoint hostname embeds the region
+     * (email-smtp.<region>.amazonaws.com). Curated from AWS's documented
+     * SES SMTP regions (see the official SMTP-credential generator's
+     * SMTP_REGIONS list in the SES developer guide); GovCloud regions are
+     * excluded -- unusable by the cPanel shared-hosting buyers of this app.
+     */
+    public const SES_DEFAULT_REGION = 'us-east-1';
+
+    /**
+     * Allowlisted SES SMTP regions: [code => human label].
+     * us-east-1 first = default; preserves pre-Item-3 behavior.
+     */
+    public static function sesRegions(): array
+    {
+        return [
+            'us-east-1'      => 'US East (N. Virginia)',
+            'us-east-2'      => 'US East (Ohio)',
+            'us-west-2'      => 'US West (Oregon)',
+            'eu-west-1'      => 'Europe (Ireland)',
+            'eu-west-2'      => 'Europe (London)',
+            'eu-central-1'   => 'Europe (Frankfurt)',
+            'eu-north-1'     => 'Europe (Stockholm)',
+            'eu-south-1'     => 'Europe (Milan)',
+            'ap-south-1'     => 'Asia Pacific (Mumbai)',
+            'ap-southeast-1' => 'Asia Pacific (Singapore)',
+            'ap-southeast-2' => 'Asia Pacific (Sydney)',
+            'ap-northeast-1' => 'Asia Pacific (Tokyo)',
+            'ap-northeast-2' => 'Asia Pacific (Seoul)',
+            'ca-central-1'   => 'Canada (Central)',
+            'sa-east-1'      => 'South America (Sao Paulo)',
+        ];
+    }
+
+    /**
+     * Normalize + validate a raw region value against the allowlist.
+     * Anything off-list (typos, regions without an SES SMTP endpoint like
+     * us-west-1, injection attempts) returns the default, so the sender
+     * can never build an invalid endpoint from a corrupt setting.
+     */
+    public static function normalizeSesRegion($raw): string
+    {
+        $r = strtolower(trim((string)$raw));
+        return isset(self::sesRegions()[$r]) ? $r : self::SES_DEFAULT_REGION;
+    }
+
+    public static function isValidSesRegion($raw): bool
+    {
+        return isset(self::sesRegions()[strtolower(trim((string)$raw))]);
+    }
+
+    /**
+     * The buyer's configured SES region, validated (setting key: ses_region).
+     */
+    public static function configuredSesRegion(): string
+    {
+        return self::normalizeSesRegion(\App\Database::getSetting('ses_region'));
+    }
+
+    /**
+     * Regional SES SMTP hostname for a region (validated, default on bad input).
+     * Pass null to use the buyer's configured region.
+     */
+    public static function sesSmtpHost(?string $region = null): string
+    {
+        $r = $region === null ? self::configuredSesRegion() : self::normalizeSesRegion($region);
+        return 'email-smtp.' . $r . '.amazonaws.com';
+    }
+
+    /**
      * Send an email utilizing outbound HTTPS APIs directly or a direct SMTP socket connection.
      * 
      * @param string $to Recipient Email Address
@@ -518,7 +590,10 @@ class EmailSender
             $port = $port ?: '587';
             $enc = $enc ?: 'tls';
         } elseif ($provider === 'amazon_ses') {
-            $host = $host ?: 'email-smtp.us-east-1.amazonaws.com';
+            // Item 3: region-selected endpoint. An explicit amazon_ses_smtp_host
+            // still wins; otherwise the host is built from the validated
+            // ses_region setting (default us-east-1 = pre-Item-3 behavior).
+            $host = $host ?: self::sesSmtpHost();
             $port = $port ?: '587';
             $enc = $enc ?: 'tls';
         }

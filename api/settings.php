@@ -32,6 +32,9 @@ const SETTINGS_ALLOWLIST = [
     'mailgun_domain', 'mailjet_api_key', 'postmark_api_key', 'mailersend_api_key',
     'mailtrap_api_key', 'zoho_api_key', 'netcore_api_key',
     'sendpulse_smtp_pass', 'amazon_ses_smtp_pass', 'zoho_smtp_pass', 'netcore_smtp_pass',
+    // SES region selector (Item 3): validated against the SES SMTP region
+    // allowlist below; anything off-list is rejected with HTTP 400.
+    'ses_region',
     'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url',
     'wp_site_url', 'wp_username', 'wp_app_password',
     // Compliance (CAN-SPAM / CASL sender identity)
@@ -124,6 +127,17 @@ try {
                 exit;
             }
             $value = $value === null ? '' : (string)$value;
+            if ($key === 'ses_region') {
+                // Normalize case/whitespace, then refuse anything off the
+                // hardcoded allowlist. Never persist a bad region: a corrupt
+                // value would otherwise build a dead SMTP endpoint.
+                $value = strtolower(trim($value));
+                if (!\App\EmailSender::isValidSesRegion($value)) {
+                    http_response_code(400);
+                    echo json_encode(['success' => false, 'error' => 'Invalid SES region: ' . substr($value, 0, 64)]);
+                    exit;
+                }
+            }
             if (isSecretSetting($key) && $value === '') {
                 $skippedSecrets++; // redacted on read -> leave stored secret unchanged
                 continue;
