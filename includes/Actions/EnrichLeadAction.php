@@ -29,10 +29,21 @@ class EnrichLeadAction extends AbstractAction
         
         $industry = $data['industry'] ?? 'Unknown';
         $painPoints = $data['pain_points'] ?? 'None identified';
-        $notes = "Industry: {$industry}\nPain Points: {$painPoints}";
-        
+
+        // Same defect class as the old qualification bug (C2): never wipe
+        // notes. Enrichment is stored as a marked block; re-running enrich
+        // REPLACES the previous enrichment block instead of duplicating it,
+        // and never touches qualification verdicts or drafts appended later.
+        $block = "[Enrichment " . date('Y-m-d') . "]:\nIndustry: {$industry}\nPain Points: {$painPoints}";
+        $existing = (string)($lead['notes'] ?? '');
+        if (preg_match('/\\[Enrichment \\d{4}-\\d{2}-\\d{2}\\]:.*?(?=\\n\\n\\[|\\z)/s', $existing)) {
+            $newNotes = preg_replace('/\\[Enrichment \\d{4}-\\d{2}-\\d{2}\\]:.*?(?=\\n\\n\\[|\\z)/s', $block, $existing);
+        } else {
+            $newNotes = $existing . ($existing !== '' ? "\n\n" : '') . $block;
+        }
+
         $stmt = $this->pdo->prepare("UPDATE leads SET status = 'Enriched', notes = ? WHERE id = ?");
-        $stmt->execute([$notes, $leadId]);
+        $stmt->execute([$newNotes, $leadId]);
 
         return true;
     }

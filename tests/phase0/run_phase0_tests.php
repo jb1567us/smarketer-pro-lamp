@@ -118,6 +118,34 @@ try {
     ok(str_contains($row['notes'], '[Qualification'), 'qualification verdict appended with marker');
     ok(str_contains($row['notes'], 'Great ICP fit'), 'qualification reason recorded');
 
+    // --- Test B2: EnrichLeadAction (notes preservation, same defect class) -----
+    echo "B2. EnrichLeadAction (notes preservation):\n";
+
+    $enricher = new class($pdo, $router) extends \App\Actions\EnrichLeadAction {
+        public int $calls = 0;
+        protected function callAgent(string $persona, string $goal, string $context, ?int $leadId = null): array {
+            $this->calls++;
+            return ['industry' => 'SaaS', 'pain_points' => 'churn'];
+        }
+    };
+    // Lead 2 starts with empty notes; give it a prior note first.
+    $pdo->exec("UPDATE leads SET notes = 'PRIOR IMPORT NOTE', status = 'New' WHERE id = 2");
+    ok($enricher->execute(2) === true, 'enrich execute returns true');
+    $notes = $pdo->query("SELECT notes FROM leads WHERE id = 2")->fetchColumn();
+    ok(str_contains($notes, 'PRIOR IMPORT NOTE'), 'pre-existing notes preserved by enrich');
+    ok(str_contains($notes, '[Enrichment'), 'enrichment block appended with marker');
+    // Re-running enrich must replace, not duplicate, the enrichment block.
+    $enricher->execute(2);
+    $notes2 = $pdo->query("SELECT notes FROM leads WHERE id = 2")->fetchColumn();
+    ok(substr_count($notes2, '[Enrichment') === 1, 're-enrich replaces block (no duplication)');
+    ok(str_contains($notes2, 'PRIOR IMPORT NOTE'), 'prior notes survive re-enrich');
+    // A qualification appended AFTER enrichment must survive a later re-enrich.
+    $pdo->exec("UPDATE leads SET notes = CONCAT(notes, '\n\n[Qualification 2026-09-24]: Qualified (score 90) — x') WHERE id = 2");
+    $enricher->execute(2);
+    $notes3 = $pdo->query("SELECT notes FROM leads WHERE id = 2")->fetchColumn();
+    ok(str_contains($notes3, '[Qualification'), 'qualification verdict survives re-enrich');
+    ok(substr_count($notes3, '[Enrichment') === 1, 'still exactly one enrichment block');
+
     // --- Test C: trigger_task.php over real HTTP -------------------------------
     echo "C. trigger_task.php (type mapping + bulk pipeline):\n";
 
@@ -184,7 +212,7 @@ try {
     if ($srvPid > 0) { exec("kill {$srvPid} 2>/dev/null"); }
 
     echo "\n{$passed} passed, {$failures} failed\n";
-    if ($failures > 0) { exit(1); }
+    $exitCode = $failures > 0 ? 1 : 0;
 } finally {
     // Restore the repo tree exactly.
     if (isset($srvPid) && $srvPid > 0) { exec("kill {$srvPid} 2>/dev/null"); }
@@ -192,3 +220,4 @@ try {
     elseif (is_file($configFile)) { unlink($configFile); }
     exec("mysql -u root -e \"DROP DATABASE IF EXISTS phase0_test;\" 2>&1");
 }
+exit($exitCode ?? 2);
