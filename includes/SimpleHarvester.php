@@ -230,12 +230,177 @@ class SimpleHarvester {
     }
 
     /**
+     * Score harvested search results with the real TrustScorer.
+     *
+     * TrustScorer::computeTrustScore() is a PURE function (no network, no LLM:
+     * microseconds per call), so scoring runs synchronously at harvest time.
+     * There is deliberately NO queue/cron involvement: the existing job queue
+     * exists for slow work (search API calls); scoring is not slow. The only
+     * network input is the DNS receptivity check, which is cached per unique
+     * domain within the batch and fails soft (any DNS error =>
+     * dnsReceptive=false), so a flaky resolver can never break a harvest.
+     * A settings kill-switch ('trustscorer_harvest_dns', default ON) lets a
+     * buyer with a pathological resolver disable the DNS probe entirely.
+     *
+     * Honest evidence mapping at harvest time (see docs/ITEM4_TRUSTSCORER.md):
+     *  - hasLevel1 = false — no on-site page extraction happens during
+     *    harvest, so on-site evidence is NEVER claimed.
+     *  - hasLevel2 = false — no directory-baseline lookup happens during
+     *    harvest, so directory evidence is NEVER claimed.
+     *  - hasLevel3 = true when a contact email is found in the harvest item's
+     *    own snippet text (title/content/snippet). The item IS a search-engine
+     *    snippet, so this is exactly what Level 3 ("contact mentioned in
+     *    general search engine snippets") means.
+     *  - dnsReceptive = MX/A check on the contact's email domain, falling
+     *    back to the prospect website's domain when the snippet has no email.
+     *  - crossReferenceMatch = false — a single source only at harvest time.
+     *
+     * HONESTY: a score is attached to an item ONLY when it was genuinely
+     * computed (score > 0, i.e. at least one evidence input was true). Items
+     * with zero evidence are returned untouched — no 'score' key — so the
+     * card renderer keeps showing the honest "Not scored" badge. Nothing is
+     * ever defaulted, interpolated, or fabricated.
+     *
+     * @param array $results Harvest items (title/url/content/snippet).
+     * @param callable|null $dnsCheck Optional DNS probe (tests):
+     *        fn(string $domain): bool. Defaults to DNSChecker::checkReceptivity.
+     * @param bool $dnsEnabled Kill-switch: false skips DNS probes entirely.
+     * @return array Same items; scored ones gain score/trust_score/trust_tier/
+     *         trust_breakdown/verification_status. 'score' is 0..1 to match the
+     *         harvest card renderer (it computes Math.round(item.score * 100)).
+     */
+    public static function scoreHarvestResults(array $results, ?callable $dnsCheck = null, bool $dnsEnabled = true): array
+    {
+        require_once __DIR__ . '/ExtractionEngine.php';
+        if ($dnsCheck === null) {
+            $dnsCheck = function (string $domain): bool {
+                try {
+                    $r = \App\Verification\DNSChecker::checkReceptivity($domain);
+                    return (bool)($r['is_receptive'] ?? false);
+                } catch (\Throwable $e) {
+                    return false;
+                }
+            };
+        }
+
+        $dnsCache = [];
+        foreach ($results as $i => $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+            $evidence = self::harvestEvidence($item, $dnsCache, $dnsCheck, $dnsEnabled);
+
+            $computed = \App\Verification\TrustScorer::computeTrustScore(
+                false,                    // hasLevel1: no on-site extraction at harvest time
+                false,                    // hasLevel2: no directory lookup at harvest time
+                $evidence['hasLevel3'],
+                $evidence['dnsReceptive'],
+                1.0,
+                1.0,
+                false                     // crossReferenceMatch: single source at harvest time
+            );
+
+            $trustScore = (int)($computed['trust_score'] ?? 0);
+            if ($trustScore > 0) {
+                $results[$i]['score'] = round($trustScore / 100, 4);
+                $results[$i]['trust_score'] = $trustScore;
+                $results[$i]['trust_tier'] = $computed['trust_tier'] ?? 'unverified';
+                $results[$i]['trust_breakdown'] = $computed['breakdown'] ?? [];
+                $results[$i]['verification_status'] = $computed['verification_status'] ?? 'unverified';
+            }
+            // trustScore == 0 means "genuinely computed: no evidence". The
+            // item keeps no score key, so the UI shows "Not scored" — an
+            // honest state, not a fabricated zero.
+        }
+        return $results;
+    }
+
+    /**
+     * Gather the TrustScorer evidence inputs actually available for one
+     * harvest item. DNS results are cached per domain for the whole batch.
+     */
+    private static function harvestEvidence(array $item, array &$dnsCache, callable $dnsCheck, bool $dnsEnabled): array
+    {
+        $text = ($item['title'] ?? '') . ' ' . ($item['content'] ?? '') . ' ' . ($item['snippet'] ?? '');
+        $emails = \App\ExtractionEngine::extractEmails($text);
+        $hasLevel3 = !empty($emails);
+
+        $domain = '';
+        if (!empty($emails)) {
+            $parts = explode('@', $emails[0]);
+            $domain = strtolower(trim((string)end($parts)));
+        }
+        if ($domain === '' && !empty($item['url'])) {
+            $host = parse_url((string)$item['url'], PHP_URL_HOST);
+            if (is_string($host) && $host !== '') {
+                $domain = strtolower((string)preg_replace('/^www\./', '', $host));
+            }
+        }
+
+        $dnsReceptive = false;
+        if ($dnsEnabled && $domain !== '') {
+            if (!array_key_exists($domain, $dnsCache)) {
+                try {
+                    $dnsCache[$domain] = (bool)$dnsCheck($domain);
+                } catch (\Throwable $e) {
+                    // Fail soft: a broken DNS probe degrades to "no DNS
+                    // evidence", never to a failed harvest.
+                    $dnsCache[$domain] = false;
+                }
+            }
+            $dnsReceptive = $dnsCache[$domain];
+        }
+
+        return ['hasLevel3' => $hasLevel3, 'dnsReceptive' => $dnsReceptive];
+    }
+
+    /**
+     * Kill-switch for the harvest-time DNS probe (settings key
+     * 'trustscorer_harvest_dns', default ON). Lets a buyer with a pathological
+     * resolver disable the only network I/O in scoring without touching code.
+     */
+    public static function isHarvestDnsEnabled($db): bool
+    {
+        try {
+            $stmt = $db->prepare("SELECT setting_value FROM settings WHERE setting_key = 'trustscorer_harvest_dns'");
+            $stmt->execute();
+            $row = $stmt->fetch();
+            if (is_array($row) && array_key_exists('setting_value', $row)) {
+                return $row['setting_value'] !== '0';
+            }
+        } catch (\Throwable $e) {
+            // settings table missing/unreadable: default to enabled.
+        }
+        return true;
+    }
+
+    /**
+     * True when the leads table carries the trust columns (trust_score,
+     * trust_breakdown) — i.e. schema.sql or the item-4 migration has been
+     * applied. Harvest must never fatal on installs that skipped it.
+     */
+    private static function leadsHasTrustColumns($db): bool
+    {
+        try {
+            $stmt = $db->query("SELECT trust_score, trust_breakdown FROM leads LIMIT 0");
+            return $stmt !== false;
+        } catch (\Throwable $e) {
+            return false;
+        }
+    }
+
+    /**
      * Stage harvested results into the leads table as 'New' entries.
      * Prevents duplicates by domain mapping.
      */
     public static function stageResults($db, array $results, string $query, ?int $campaignId, string $leadPersona): array {
         $stagedCount = 0;
         $duplicatesCount = 0;
+
+        // Detect the trust columns ONCE per call (not per row). Installs that
+        // never ran schema.sql / the item-4 migration simply skip trust
+        // persistence instead of fataling the whole harvest.
+        $trustCols = self::leadsHasTrustColumns($db);
 
         foreach ($results as $item) {
             $url = $item['url'] ?? '';
@@ -304,11 +469,32 @@ class SimpleHarvester {
             // target_persona only — never to contact_name.
             $contactName = null;
 
-            // Insert lead
+            // Insert lead.
+            //
+            // Item 4: persist the genuine TrustScorer result when this harvest
+            // item was actually scored. scoreHarvestResults() only attaches
+            // trust_score/trust_breakdown/verification_status when a score was
+            // genuinely computed (score > 0), so isset() here is an honesty
+            // gate, not a default. Unscored items keep the legacy behavior
+            // (trust columns untouched, verification_status 'unknown').
+            $trustExtraCols = '';
+            $trustExtraPlaceholders = '';
+            $trustExtraParams = [];
+            $insertVerifStatus = 'unknown';
+            $itemTrustScore = isset($item['trust_score']) ? (int)$item['trust_score'] : 0;
+            if ($trustCols && $itemTrustScore > 0) {
+                $trustExtraCols = ', trust_score, trust_breakdown';
+                $trustExtraPlaceholders = ', ?, ?';
+                $trustExtraParams = [$itemTrustScore, json_encode($item['trust_breakdown'] ?? [])];
+                // TrustScorer statuses are valid for both the VARCHAR(20) and
+                // the phase-7 ENUM('unverified','evidence_backed',
+                // 'dns_confirmed','cross_source_matched','gold_standard').
+                $insertVerifStatus = $item['verification_status'] ?? 'unverified';
+            }
             $targetPersona = !empty($leadPersona) ? $leadPersona : null;
-            $insertStmt = $db->prepare("INSERT INTO leads (company_name, contact_name, email, website, source, campaign_id, notes, status, target_persona, email_source, source_url, is_role_based, consent_status, verification_status) VALUES (?, ?, ?, ?, 'Harvested', ?, ?, 'New', ?, ?, ?, ?, 'unknown', 'unknown')");
+            $insertStmt = $db->prepare("INSERT INTO leads (company_name, contact_name, email, website, source, campaign_id, notes, status, target_persona, email_source, source_url, is_role_based, consent_status, verification_status{$trustExtraCols}) VALUES (?, ?, ?, ?, 'Harvested', ?, ?, 'New', ?, ?, ?, ?, 'unknown', ?{$trustExtraPlaceholders})");
             try {
-                $insertStmt->execute([
+                $insertStmt->execute(array_merge([
                     $companyName,
                     $contactName,
                     $primaryEmail,
@@ -318,8 +504,9 @@ class SimpleHarvester {
                     $targetPersona,
                     $emailSource,
                     $url,
-                    $isRoleBased
-                ]);
+                    $isRoleBased,
+                    $insertVerifStatus,
+                ], $trustExtraParams));
                 $stagedCount++;
             } catch (\Throwable $e) {
                 // Duplicate-key race (the pre-check above is not atomic):

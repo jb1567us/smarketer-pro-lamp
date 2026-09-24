@@ -9,6 +9,8 @@ CREATE TABLE IF NOT EXISTS leads (
     website VARCHAR(255),
     status ENUM('New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted') DEFAULT 'New',
     lead_score INT DEFAULT 0,
+    trust_score INT DEFAULT 0 COMMENT 'Item 4: genuine TrustScorer result (0-100); 0 = unscored',
+    trust_breakdown JSON DEFAULT NULL COMMENT 'Item 4: TrustScorer per-level breakdown',
     source VARCHAR(100),
     notes TEXT,
     campaign_id INT NULL,

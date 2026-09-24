@@ -58,9 +58,16 @@ if ($method === 'POST') {
         $results = [];
         $errors = [];
 
+        // Item 4: score harvest results with the real TrustScorer before
+        // staging/returning. TrustScorer is a pure function (microseconds);
+        // only the per-domain DNS probe is network I/O, cached per batch and
+        // fail-soft, with a settings kill-switch for broken resolvers.
+        $harvestDnsEnabled = SimpleHarvester::isHarvestDnsEnabled($pdo);
+
         if ($singleQuery) {
              try {
                 $results = $harvester->harvest($singleQuery, 50);
+                $results = SimpleHarvester::scoreHarvestResults($results, null, $harvestDnsEnabled);
                 // Stage results
                 SimpleHarvester::stageResults($pdo, $results, $singleQuery, $campaignId, $leadPersona);
              } catch (Exception $e) {
@@ -72,6 +79,7 @@ if ($method === 'POST') {
              foreach ($nonEmptyKeywords as $kw) {
                 try {
                     $res = $harvester->harvest($kw, 10);
+                    $res = SimpleHarvester::scoreHarvestResults($res, null, $harvestDnsEnabled);
                     // Stage individual batch results
                     SimpleHarvester::stageResults($pdo, $res, $kw, $campaignId, $leadPersona);
                     $results = array_merge($results, $res);
