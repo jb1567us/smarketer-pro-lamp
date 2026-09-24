@@ -5,7 +5,10 @@
  * OpenRouter), ZERO sends.
  *
  *   php tests/phase0/run_acceptance.php --setup   # build scratch DB + seed (no key needed)
- *   OPENROUTER_API_KEY=... php tests/phase0/run_acceptance.php --run
+ *   DEEPSEEK_API_KEY=... php tests/phase0/run_acceptance.php --run
+ *
+ * Uses the native DeepSeek API (OpenAI-compatible) via the router's
+ * `deepseek` provider — no OpenRouter markup.
  *
  * The run executes the real action classes end to end on the 4 fictional
  * Product Insights pilot leads (example.com addresses — undeliverable by
@@ -83,24 +86,24 @@ try {
 
     // Point the LLM router at DeepSeek V4 Flash on OpenRouter.
     $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES " .
-        "('active_llm_provider', 'openrouter'), ('openrouter_model', 'deepseek/deepseek-v4-flash') " .
+        "('active_llm_provider', 'deepseek'), ('deepseek_model', 'deepseek-flash') " .
         "ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
 
     if ($mode === '--setup') {
         echo "acceptance DB ready: {$dbName} (campaign {$campaignId}, 4 fictional leads)\n";
-        echo "run with: OPENROUTER_API_KEY=... php tests/phase0/run_acceptance.php --run\n";
+        echo "run with: DEEPSEEK_API_KEY=... php tests/phase0/run_acceptance.php --run\n";
         echo "(DB is kept for --run; config/db.php restored below.)\n";
         $exitCode = 0; // set flag; real exit happens after finally restores config
     } else {
 
     // --- --run -----------------------------------------------------------
-    $apiKey = getenv('OPENROUTER_API_KEY') ?: '';
+    $apiKey = getenv('DEEPSEEK_API_KEY') ?: '';
     if ($apiKey === '') {
-        fwrite(STDERR, "OPENROUTER_API_KEY is not set in the environment. Aborting before any LLM call.\n");
+        fwrite(STDERR, "DEEPSEEK_API_KEY is not set in the environment. Aborting before any LLM call.\n");
         $exitCode = 3;
     } else {
     // Key lives ONLY in this scratch DB, never in the repo or memory.
-    $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('openrouter_api_key', ?) " .
+    $stmt = $pdo->prepare("INSERT INTO settings (setting_key, setting_value) VALUES ('deepseek_api_key', ?) " .
         "ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
     $stmt->execute([$apiKey]);
 
@@ -152,7 +155,7 @@ try {
     $check(true, 'send path was never invoked (this script has no send step)');
 
     // Purge the key from the scratch DB before dropping it (defense in depth).
-    $pdo->exec("DELETE FROM settings WHERE setting_key = 'openrouter_api_key'");
+    $pdo->exec("DELETE FROM settings WHERE setting_key = 'deepseek_api_key'");
     echo "\n{$failures} failures\n";
     $exitCode = $failures > 0 ? 1 : 0;
     if ($failures === 0) { echo "ACCEPTANCE RUN COMPLETE — zero sends.\n"; }

@@ -125,6 +125,8 @@ try {
         public int $calls = 0;
         protected function callAgent(string $persona, string $goal, string $context, ?int $leadId = null): array {
             $this->calls++;
+            // Second call returns arrays, as the real model sometimes does.
+            if ($this->calls > 1) { return ['industry' => ['SaaS', 'DevTools'], 'pain_points' => ['churn', 'cac']]; }
             return ['industry' => 'SaaS', 'pain_points' => 'churn'];
         }
     };
@@ -135,9 +137,11 @@ try {
     ok(str_contains($notes, 'PRIOR IMPORT NOTE'), 'pre-existing notes preserved by enrich');
     ok(str_contains($notes, '[Enrichment'), 'enrichment block appended with marker');
     // Re-running enrich must replace, not duplicate, the enrichment block.
+    // (Second stubbed call returns arrays — verifies array normalization.)
     $enricher->execute(2);
     $notes2 = $pdo->query("SELECT notes FROM leads WHERE id = 2")->fetchColumn();
     ok(substr_count($notes2, '[Enrichment') === 1, 're-enrich replaces block (no duplication)');
+    ok(str_contains($notes2, 'SaaS; DevTools') && str_contains($notes2, 'churn; cac'), 'array fields normalized to strings');
     ok(str_contains($notes2, 'PRIOR IMPORT NOTE'), 'prior notes survive re-enrich');
     // A qualification appended AFTER enrichment must survive a later re-enrich.
     $pdo->exec("UPDATE leads SET notes = CONCAT(notes, '\n\n[Qualification 2026-09-24]: Qualified (score 90) — x') WHERE id = 2");

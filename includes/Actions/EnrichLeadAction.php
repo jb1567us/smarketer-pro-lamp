@@ -29,6 +29,9 @@ class EnrichLeadAction extends AbstractAction
         
         $industry = $data['industry'] ?? 'Unknown';
         $painPoints = $data['pain_points'] ?? 'None identified';
+        // The model sometimes returns a JSON array for these fields — normalize.
+        if (is_array($industry)) { $industry = implode('; ', $industry); }
+        if (is_array($painPoints)) { $painPoints = implode('; ', $painPoints); }
 
         // Same defect class as the old qualification bug (C2): never wipe
         // notes. Enrichment is stored as a marked block; re-running enrich
