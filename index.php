@@ -868,6 +868,43 @@ require_once __DIR__ . '/includes/autoload.php';
                         <p class="text-[9px] text-slate-500 mt-1.5">Checks that your key is accepted and reports your remaining credit balance. Spends <span class="font-bold">no</span> verification credits.</p>
                         <div id="verification-test-output" class="hidden mt-3"></div>
                     </div>
+
+                    <div class="pt-3 border-t border-white/5">
+                        <p class="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-3">Advanced verification options</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Risky addresses</label>
+                                <select id="setting-verification_risky_action" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                    <option value="block">Block (recommended)</option>
+                                    <option value="flag">Flag but allow</option>
+                                </select>
+                                <p class="text-[9px] text-slate-500">Catch-all domains can&apos;t be confirmed. &quot;Block&quot; refuses to send to them.</p>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Strict mode</label>
+                                <select id="setting-verification_strict" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                    <option value="0">Off — allow sends when the provider can&apos;t answer</option>
+                                    <option value="1">On — block sends when the provider can&apos;t answer</option>
+                                </select>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Verdict cache (days)</label>
+                                <input type="number" min="0" id="setting-verification_cache_days" placeholder="30" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                                <p class="text-[9px] text-slate-500">Reuse a verdict this fresh instead of spending another credit. 0 = always re-check.</p>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Bulk verify: batch size</label>
+                                <input type="number" min="1" max="2000" id="setting-verification_bulk_batch_size" placeholder="150" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                                <p class="text-[9px] text-slate-500">Leads checked per queue tick (every ~5 min).</p>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Bulk verify: pause between lookups (ms)</label>
+                                <input type="number" min="0" max="10000" id="setting-verification_bulk_delay_ms" placeholder="250" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                                <p class="text-[9px] text-slate-500">Politeness delay so the provider never rate-limits the job.</p>
+                            </div>
+                        </div>
+                        <p class="text-[9px] text-slate-500 mt-3">Bulk verify (&quot;Verify leads&quot; on the Leads tab) runs in the background via the queue worker and writes results to each lead. Invalid addresses become unmailable automatically.</p>
+                    </div>
                 </div>
 
                 <div class="space-y-6">
@@ -888,59 +925,6 @@ require_once __DIR__ . '/includes/autoload.php';
                             <input type="text" id="setting-scraper_priority" placeholder="firecrawl,exa,tavily,searxng" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm">
                         </div>
                     </div>
-                </div>
-                <!-- Email Verification (MillionVerifier) — ITEM2 -->
-                <div class="space-y-6 md:col-span-2">
-                    <div class="flex items-center gap-2 mb-2">
-                        <span class="text-emerald-500">✉️</span>
-                        <h3 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Email Verification (MillionVerifier)</h3>
-                    </div>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                            <label class="block text-[11px] text-slate-500 mb-1.5 uppercase font-bold tracking-wider">Verification</label>
-                            <select id="setting-verification_required" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm appearance-none">
-                                <option value="0">Off</option>
-                                <option value="1">On — check emails before sending</option>
-                            </select>
-                            <p class="text-[9px] text-slate-500 mt-1">Master switch for the per-send verification gate AND bulk verify. Off by default.</p>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] text-slate-500 mb-1.5 uppercase font-bold tracking-wider">MillionVerifier API Key</label>
-                            <input type="password" id="setting-verification_api_key" placeholder="Paste your API key" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm">
-                            <p class="text-[9px] text-slate-500 mt-1">Each lookup costs you one MillionVerifier credit. The key is never shown again after saving.</p>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] text-slate-500 mb-1.5 uppercase font-bold tracking-wider">Risky addresses</label>
-                            <select id="setting-verification_risky_action" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm appearance-none">
-                                <option value="block">Block (recommended)</option>
-                                <option value="flag">Flag but allow</option>
-                            </select>
-                            <p class="text-[9px] text-slate-500 mt-1">Catch-all domains can't be confirmed. "Block" refuses to send to them.</p>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] text-slate-500 mb-1.5 uppercase font-bold tracking-wider">Strict mode</label>
-                            <select id="setting-verification_strict" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm appearance-none">
-                                <option value="0">Off — allow sends when the provider can't answer</option>
-                                <option value="1">On — block sends when the provider can't answer</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] text-slate-500 mb-1.5 uppercase font-bold tracking-wider">Verdict cache (days)</label>
-                            <input type="number" min="0" id="setting-verification_cache_days" placeholder="30" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm">
-                            <p class="text-[9px] text-slate-500 mt-1">Reuse a verdict this fresh instead of spending another credit. 0 = always re-check.</p>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] text-slate-500 mb-1.5 uppercase font-bold tracking-wider">Bulk verify: batch size</label>
-                            <input type="number" min="1" max="2000" id="setting-verification_bulk_batch_size" placeholder="150" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm">
-                            <p class="text-[9px] text-slate-500 mt-1">Leads checked per queue tick (every ~5 min). 150 default ≈ a few thousand per hour.</p>
-                        </div>
-                        <div>
-                            <label class="block text-[11px] text-slate-500 mb-1.5 uppercase font-bold tracking-wider">Bulk verify: pause between lookups (ms)</label>
-                            <input type="number" min="0" max="10000" id="setting-verification_bulk_delay_ms" placeholder="250" class="w-full bg-slate-900/50 border border-white/5 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition text-sm">
-                            <p class="text-[9px] text-slate-500 mt-1">Politeness delay so the provider never rate-limits the job. Lower = faster, riskier.</p>
-                        </div>
-                    </div>
-                    <p class="text-[9px] text-slate-500">Bulk verify ("Verify leads" on the Leads tab) runs in the background via the queue worker and writes results to each lead. Invalid addresses become unmailable automatically.</p>
                 </div>
             </div>
 
