@@ -161,9 +161,10 @@ foreach ($copyFiles as $f) {
     $text = file_get_contents($f);
     foreach ($banned as $re => $what) {
         if (preg_match($re, $text, $gm)) {
-            // Negations ("no <x>", "makes no <x> promises") are disclaimers, not promises.
+            // Negations ("no <x>", "does not guarantee <x>", "never <x>", "makes no <x> promises")
+            // are disclaimers, not promises.
             $before = strtolower(substr($text, 0, strpos($text, $gm[0])));
-            if (!preg_match('/\bno\b.{0,12}$/', $before) && !preg_match('/makes no.{0,25}$/', $before)) {
+            if (!preg_match('/\b(?:no|not|never)\b.{0,15}$/', $before) && !preg_match('/makes no.{0,25}$/', $before)) {
                 $bad[] = basename($f) . ': ' . $what;
             }
         }
