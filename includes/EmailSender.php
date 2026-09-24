@@ -100,6 +100,7 @@ class EmailSender
      * @param string $apiKey The API Key / Token / SMTP Password
      * @param string $senderEmail The Authorized SPF/DKIM Verified Sender
      * @param string|null $mailgunDomain Required for Mailgun domain (or falls back to smtp_host / generic domain)
+     * @param int|null $campaignId ITEM A: campaign that owns this send; refused sends are counted against it.
      * @return bool
      * @throws Exception
      */
@@ -110,16 +111,20 @@ class EmailSender
         string $provider,
         string $apiKey,
         string $senderEmail,
-        ?string $mailgunDomain = null
+        ?string $mailgunDomain = null,
+        ?int $campaignId = null
     ): bool {
         if (self::isPlaceholderAddress($to)) {
+            // ITEM A: fabricated harvester addresses are refused here — count
+            // them so the campaign view can say so plainly.
+            \App\BlockedCount::record($campaignId, \App\BlockedCount::REASON_PLACEHOLDER);
             throw new Exception("Refusing to send to placeholder address: {$to}");
         }
 
         // Guardrail choke point: suppression list, mandatory sender identity,
         // and the CASL harvest gate. Throws when a send would put the
         // buyer's provider account at risk.
-        Compliance::requireCompliantSend($to);
+        Compliance::requireCompliantSend($to, null, $campaignId);
 
         // Identity footer: legal name + postal address + one-click
         // unsubscribe on every message, all providers. Mail without a real

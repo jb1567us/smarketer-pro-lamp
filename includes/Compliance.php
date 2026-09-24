@@ -337,8 +337,14 @@ class Compliance
      * Enforce every pre-send guardrail. Throws when a send would put the
      * buyer's provider account at risk — callers must not catch-and-continue
      * past this.
+     *
+     * ITEM A: every refusal is counted against the campaign that owns the
+     * send (when $campaignId is given) via BlockedCount::record(), BEFORE
+     * the exception is thrown — a refusal is never silently lost from the
+     * campaign's blocked-send counters. Recording never changes the throw
+     * behavior: same exception type, same message.
      */
-    public static function requireCompliantSend(string $to, ?array $lead = null): void
+    public static function requireCompliantSend(string $to, ?array $lead = null, ?int $campaignId = null): void
     {
         $to = trim($to);
 
@@ -349,7 +355,7 @@ class Compliance
         // see \App\Licensing::decideSending(). Dashboard, leads, campaigns,
         // and settings keep working regardless.
         if (!\App\Licensing::sendingAllowed()) {
-            throw new OutreachException(
+            self::refuseSend($campaignId, BlockedCount::REASON_LICENSE_REVOKED,
                 'Refusing to send: this license key has been revoked. ' .
                 'Sending is paused; the rest of the app keeps working. ' .
                 'If you believe this is a mistake, contact support — sending ' .
@@ -359,7 +365,7 @@ class Compliance
         // ── /License gate ────────────────────────────────────────────────
 
         if (self::isSuppressed($to)) {
-            throw new OutreachException(
+            self::refuseSend($campaignId, BlockedCount::REASON_SUPPRESSION,
                 "Refusing to send: {$to} is on the suppression list (opt-out, bounce, or complaint)."
             );
         }
@@ -367,7 +373,7 @@ class Compliance
         $legalName = trim((string)(Database::getSetting('company_legal_name', '') ?? ''));
         $postal = trim((string)(Database::getSetting('physical_address', '') ?? ''));
         if ($legalName === '' || $postal === '') {
-            throw new OutreachException(
+            self::refuseSend($campaignId, BlockedCount::REASON_COMPLIANCE_PAUSE,
                 'Refusing to send: sender identity is not configured. Set "Company legal name" and ' .
                 '"Physical postal address" in System Settings — providers flag or block commercial mail ' .
                 'without a real sender identity.'
@@ -379,12 +385,26 @@ class Compliance
         // caslCheckForSend(), so every send attempt leaves one audit row.
         $casl = self::caslCheckForSend($to, $lead);
         if ($casl['decision'] === 'block') {
-            throw new OutreachException($casl['message']);
+            self::refuseSend($campaignId, BlockedCount::REASON_COMPLIANCE_PAUSE, $casl['message']);
         }
         // ── /CASL country gate (item 8) ──
 
         // ── Email verification gate (item 3) ──
-        self::runEmailVerificationGate($to, $lead);
+        self::runEmailVerificationGate($to, $lead, $campaignId);
+    }
+
+    /**
+     * ITEM A — single refusal choke point for the send gate.
+     *
+     * Records the block against the campaign FIRST (when campaign context
+     * is available), then throws the exact OutreachException the caller
+     * would have received before ITEM A. The message text is untouched, so
+     * existing needle-based tests keep passing.
+     */
+    private static function refuseSend(?int $campaignId, string $reason, string $message): void
+    {
+        BlockedCount::record($campaignId, $reason);
+        throw new OutreachException($message);
     }
 
     // ── Email verification gate (item 3) ─────────────────────────────────────────
@@ -459,8 +479,12 @@ class Compliance
      * Settings-level wrapper. No-op (never throws) unless the gate is enabled
      * AND an API key is configured. Looks the lead up for cache purposes when
      * the caller didn't pass one.
+     *
+     * ITEM A: when the gate refuses the send, the refusal is counted as
+     * invalid_verification against $campaignId (when given), then the
+     * original exception is rethrown unchanged.
      */
-    public static function runEmailVerificationGate(string $to, ?array $lead = null): void
+    public static function runEmailVerificationGate(string $to, ?array $lead = null, ?int $campaignId = null): void
     {
         if (self::verificationSetting('verification_required', '0') !== '1') {
             return; // Gate disabled — zero behavior change.
@@ -503,16 +527,23 @@ class Compliance
         };
         $warn = function (string $msg): void { error_log($msg); };
 
-        self::applyVerificationGate(
-            $to,
-            $provider,
-            $lead,
-            self::verificationSetting('verification_risky_action', 'block'),
-            self::verificationSetting('verification_strict', '0') === '1',
-            max(0, (int)self::verificationSetting('verification_cache_days', '30')),
-            $recordStatus,
-            $warn
-        );
+        try {
+            self::applyVerificationGate(
+                $to,
+                $provider,
+                $lead,
+                self::verificationSetting('verification_risky_action', 'block'),
+                self::verificationSetting('verification_strict', '0') === '1',
+                max(0, (int)self::verificationSetting('verification_cache_days', '30')),
+                $recordStatus,
+                $warn
+            );
+        } catch (OutreachException $e) {
+            // ITEM A: the gate refused this send — count it, then rethrow
+            // the original exception unchanged.
+            BlockedCount::record($campaignId, BlockedCount::REASON_INVALID_VERIFICATION);
+            throw $e;
+        }
     }
 
     /**

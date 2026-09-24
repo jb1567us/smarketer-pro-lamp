@@ -987,6 +987,7 @@ require_once __DIR__ . '/includes/autoload.php';
     <div id="drawer-container" class="fixed top-0 right-0 h-full w-full max-w-lg bg-slate-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl z-[90] transform translate-x-full transition-transform duration-300 ease-out flex flex-col"></div>
 
     <script src="assets/js/diagnostics.js"></script>
+    <script src="assets/js/blocked_counts.js"></script>
     <script src="assets/js/dashboard.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {

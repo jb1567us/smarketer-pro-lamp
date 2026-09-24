@@ -1207,6 +1207,7 @@ async function fetchCampaigns() {
                                 : 'bg-slate-800 border-white/10 text-slate-500 hover:text-white'}"
                             title="Toggle active">${c.is_active ? '● Active' : '○ Paused'}</button>
                     </div>
+                    ${campaignBlockedHtml(c)}
                     <div class="flex items-center gap-2 mt-auto">
                         <button onclick="viewTemplates(${c.id})" class="flex-1 text-center text-xs font-bold py-2 rounded-xl bg-blue-600/10 hover:bg-blue-600/20 text-blue-400 border border-blue-500/20 transition">📋 Manage Steps</button>
                         <button onclick="editCampaign(${c.id})" class="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white transition" title="Edit">⚙️</button>

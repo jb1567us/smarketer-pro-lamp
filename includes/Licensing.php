@@ -60,6 +60,16 @@ class Licensing
         self::$verdictCache = null;
     }
 
+    /**
+     * @internal test-only — injects the cached verdict readVerdict() returns
+     * (pass null to clear). Lets tests exercise the revoked-key send gate
+     * without a database or a license server.
+     */
+    public static function setVerdictForTest(?array $verdict): void
+    {
+        self::$verdictCache = $verdict;
+    }
+
     /** License-server API base URL, or null when licensing is disabled. */
     public static function serverUrl(): ?string
     {

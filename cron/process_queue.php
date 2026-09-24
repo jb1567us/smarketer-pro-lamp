@@ -133,6 +133,13 @@ try {
                     "error_message = ? WHERE id = ?"
                 );
                 $defer->execute([$decision->deferMinutes, 'Throttled (' . $decision->code . '): ' . $decision->detail, $taskId]);
+                // ITEM A: the send was refused by a throttle cap for now -- the
+                // task is deferred (retried later), and the refusal is counted
+                // so the campaign view can explain the holdup.
+                \App\BlockedCount::record(
+                    $payloadCampaign > 0 ? $payloadCampaign : null,
+                    \App\BlockedCount::REASON_THROTTLE
+                );
                 echo "[LOG] Task {$taskId} deferred {$decision->deferMinutes}m: {$decision->detail}\n";
                 continue;
             }

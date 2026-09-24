@@ -64,12 +64,18 @@ try {
         throw new Exception("Lead does not have a valid email address");
     }
     if (\App\EmailSender::isPlaceholderAddress($to)) {
+        // ITEM A: counted here — EmailSender::send() is never reached on
+        // this path, so its own placeholder record() can't fire.
+        \App\BlockedCount::record($campaignId, \App\BlockedCount::REASON_PLACEHOLDER);
         throw new Exception("Lead has no verified email address (placeholder only). Resolve a real address before sending.");
     }
 
     // Compliance pre-checks (fail fast with a clear, buyer-actionable error).
     // EmailSender::send() re-enforces these at the choke point as a backstop.
     if (\App\Compliance::isSuppressed($to)) {
+        // ITEM A: counted here — EmailSender::send() is never reached on
+        // this path, so the gate's own suppression record() can't fire.
+        \App\BlockedCount::record($campaignId, \App\BlockedCount::REASON_SUPPRESSION);
         throw new Exception("This address is on the suppression list (opt-out, bounce, or complaint) and won't be mailed. Re-mailing opt-outs and complainers is the fastest way to get a sending account suspended — the suppression list is protecting your account.");
     }
     // CASL is enforced AND audited at the EmailSender::send() choke point
@@ -95,7 +101,7 @@ try {
         // Route via Smart Failover Router
         try {
             $router = new \App\Routers\SmartEmailRouter($pdo);
-            $sent = $router->send($to, $subject, $body);
+            $sent = $router->send($to, $subject, $body, $campaignId);
             if (!$sent) {
                 $error = "Smart Rotation failed to send email using any configured provider.";
             }
@@ -111,7 +117,7 @@ try {
                 $apiKey = in_array($provider, ['smtp', 'custom_smtp', 'sendpulse', 'amazon_ses', 'zoho_smtp', 'netcore_smtp']) ? $smtpPass : $smtpUser;
             }
 
-            $sent = \App\EmailSender::send($to, $subject, $body, $provider, $apiKey, $senderEmail, $smtpHost);
+            $sent = \App\EmailSender::send($to, $subject, $body, $provider, $apiKey, $senderEmail, $smtpHost, $campaignId);
         } catch (Exception $e) {
             $error = $e->getMessage();
         }
