@@ -53,6 +53,27 @@ try {
             exit;
         }
 
+        // ITEM2: how many leads would "verify all unchecked" cover (confirm dialog).
+        if ($action === 'verify_count') {
+            $mode = $_GET['mode'] ?? 'unchecked';
+            if ($mode !== 'unchecked') leads_error(400, 'Unsupported mode');
+            echo json_encode([
+                'success' => true,
+                'data' => ['count' => \App\BulkVerifyJob::countUnchecked($pdo)],
+            ]);
+            exit;
+        }
+
+        // ITEM2: pollable bulk-verify progress. Never exposes the API key.
+        if ($action === 'verify_status') {
+            $id = (int)($_GET['id'] ?? 0);
+            if ($id <= 0) leads_error(400, 'Missing job id');
+            $status = \App\BulkVerifyJob::status($pdo, $id);
+            if ($status === null) leads_error(404, 'Bulk-verify job not found');
+            echo json_encode(['success' => true, 'data' => $status]);
+            exit;
+        }
+
         // List leads (limit/offset/search)
         $limit  = isset($_GET['limit'])  ? min(max((int)$_GET['limit'], 1), 100) : 10;
         $offset = isset($_GET['offset']) ? max((int)$_GET['offset'], 0) : 0;
@@ -167,6 +188,31 @@ try {
             $result = $agent->processLead($id);
             if (empty($result['success'])) http_response_code(502);
             echo json_encode($result);
+            exit;
+        }
+
+        // ITEM2: enqueue a bulk-verify job (queue/cron-backed; one HTTP request = enqueue only).
+        if ($action === 'verify_bulk') {
+            $input = json_decode(file_get_contents('php://input'), true) ?? [];
+            $mode = trim($input['mode'] ?? 'unchecked');
+            $ids = $input['ids'] ?? [];
+            if (!is_array($ids)) $ids = [];
+            try {
+                $job = \App\BulkVerifyJob::enqueue($pdo, $mode, $ids);
+            } catch (\InvalidArgumentException $e) {
+                leads_error(422, $e->getMessage());
+            }
+            echo json_encode(['success' => true, 'data' => $job]);
+            exit;
+        }
+
+        // ITEM2: cancel a queued/running bulk-verify job.
+        if ($action === 'verify_cancel') {
+            $id = (int)($_GET['id'] ?? 0);
+            if ($id <= 0) leads_error(400, 'Missing job id');
+            $ok = \App\BulkVerifyJob::cancel($pdo, $id);
+            if (!$ok) leads_error(409, 'That job is already finished or does not exist.');
+            echo json_encode(['success' => true, 'data' => ['task_id' => $id]]);
             exit;
         }
 

@@ -1594,7 +1594,10 @@ async function saveSettings() {
         'postmark_api_key', 'mailersend_api_key', 'mailtrap_api_key', 'zoho_api_key', 'netcore_api_key',
         'sendpulse_smtp_pass', 'amazon_ses_smtp_pass', 'zoho_smtp_pass', 'netcore_smtp_pass',
         'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url',
-        'license_server_url', 'license_key'
+        'license_server_url', 'license_key',
+        'verification_required', 'verification_api_key', 'verification_risky_action',
+        'verification_strict', 'verification_cache_days',
+        'verification_bulk_batch_size', 'verification_bulk_delay_ms'
     ];
     const settings = {};
     keys.forEach(k => {
@@ -1785,3 +1788,106 @@ async function runSmtpDiagnostics() {
     logsPre.scrollTop = logsPre.scrollHeight;
 }
 
+
+/* ── ITEM2: Bulk email verification ─────────────────────────────────────
+ * "Verify leads" enqueues ONE task; the cron queue worker verifies in
+ * batches. The panel below polls api/leads.php?action=verify_status.
+ */
+let bulkVerifyTimer = null;
+let bulkVerifyTaskId = null;
+
+async function bulkVerifyOpen() {
+    const selected = getSelectedIds();
+    let unchecked = 0;
+    try {
+        const r = await fetch('api/leads.php?action=verify_count&mode=unchecked');
+        const j = await r.json();
+        if (j.success) unchecked = j.data.count;
+    } catch (e) { /* offline: fall through with 0 */ }
+
+    const creditNote = '\n\nEach lookup uses about one of YOUR MillionVerifier credits. ' +
+        'The job runs in the background via the queue worker - watch progress here, cancel any time. ' +
+        "Invalid addresses are marked invalid (unmailable). 'Risky' and 'unknown' are NEVER marked valid.";
+
+    if (selected.length) {
+        if (confirm('Verify the ' + selected.length + ' selected lead(s)? (~' + selected.length + ' credit(s).)' + creditNote)) {
+            bulkVerifyStart('selected', selected);
+            return;
+        }
+        // Declined selected: offer all-unchecked as the alternative.
+        if (unchecked > 0 && confirm('Verify ALL ' + unchecked + ' unchecked lead(s) instead? (~' + unchecked + ' credit(s).)' + creditNote)) {
+            bulkVerifyStart('unchecked', []);
+        }
+        return;
+    }
+    if (!unchecked) { toast('Nothing to verify: every lead already has a verdict.', 'warn'); return; }
+    if (confirm('Verify all ' + unchecked + ' unchecked lead(s)? (~' + unchecked + ' credit(s).)' + creditNote)) {
+        bulkVerifyStart('unchecked', []);
+    }
+}
+
+async function bulkVerifyStart(mode, ids) {
+    try {
+        const r = await fetch('api/leads.php?action=verify_bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode, ids })
+        });
+        const j = await r.json();
+        if (!j.success) { toast(j.error || 'Could not start bulk verify', 'warn'); return; }
+        toast(`Bulk verify queued: ${j.data.total} lead(s).`, 'success');
+        bulkVerifyShow(j.data.task_id);
+    } catch (e) {
+        toast('Could not start bulk verify (network error).', 'warn');
+    }
+}
+
+function bulkVerifyShow(taskId) {
+    bulkVerifyTaskId = taskId;
+    document.getElementById('bulk-verify-panel')?.classList.remove('hidden');
+    document.getElementById('bulk-verify-cancel')?.classList.remove('hidden');
+    if (bulkVerifyTimer) clearInterval(bulkVerifyTimer);
+    bulkVerifyPoll();
+    bulkVerifyTimer = setInterval(bulkVerifyPoll, 3000);
+}
+
+async function bulkVerifyPoll() {
+    if (!bulkVerifyTaskId) return;
+    try {
+        const r = await fetch(`api/leads.php?action=verify_status&id=${bulkVerifyTaskId}`);
+        const j = await r.json();
+        if (!j.success) return;
+        const d = j.data;
+        const bar = document.getElementById('bulk-verify-bar');
+        const counts = document.getElementById('bulk-verify-counts');
+        const note = document.getElementById('bulk-verify-note');
+        const state = document.getElementById('bulk-verify-state');
+        if (bar) bar.style.width = `${d.percent}%`;
+        if (state) state.textContent = `— ${d.state} (${d.checked}/${d.total})`;
+        if (counts) counts.textContent =
+            `Checked ${d.checked} of ${d.total} · valid ${d.valid} · invalid ${d.invalid} · risky ${d.risky} · unknown ${d.unknown}`;
+        if (note) note.textContent = d.note || d.error || '';
+        const terminal = ['Completed', 'Failed', 'Cancelled'].includes(d.state);
+        if (terminal) {
+            if (bulkVerifyTimer) { clearInterval(bulkVerifyTimer); bulkVerifyTimer = null; }
+            document.getElementById('bulk-verify-cancel')?.classList.add('hidden');
+            if (d.state === 'Completed') { toast('Bulk verify finished.', 'success'); fetchLeads(); }
+            else if (d.state === 'Failed') { toast('Bulk verify failed: ' + (d.error || d.note || 'see note'), 'warn'); }
+        }
+    } catch (e) { /* transient: next poll retries */ }
+}
+
+async function bulkVerifyCancel() {
+    if (!bulkVerifyTaskId) return;
+    if (!confirm('Cancel this bulk-verify job? Leads already checked keep their verdicts; the rest stay unchecked.')) return;
+    try {
+        const r = await fetch(`api/leads.php?action=verify_cancel&id=${bulkVerifyTaskId}`, { method: 'POST' });
+        const j = await r.json();
+        if (j.success) toast('Cancellation requested.', 'success');
+        else toast(j.error || 'Could not cancel', 'warn');
+    } catch (e) {
+        toast('Cancel failed (network error).', 'warn');
+    }
+    bulkVerifyPoll();
+}
+// ── /ITEM2 ─────────────────────────────────────────────────────────────

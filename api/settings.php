@@ -48,6 +48,12 @@ const SETTINGS_ALLOWLIST = [
     'monitor_auto_pause', 'monitor_min_delivered',
     // Soft phone-home license lock. license_key is secret (redacted on read).
     'license_server_url', 'license_key',
+    // ITEM2: email verification (per-send gate + bulk verify). verification_api_key
+    // is secret (redacted on read); the rest are plain scalars.
+    'verification_required', 'verification_provider', 'verification_api_key',
+    'verification_risky_action', 'verification_strict', 'verification_cache_days',
+    'verification_bulk_batch_size', 'verification_bulk_delay_ms',
+    'verification_bulk_max_unknown_streak',
 ];
 
 /**
