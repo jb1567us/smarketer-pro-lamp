@@ -20,6 +20,7 @@ $testFiles = [
     'test_ingest_limits.php'      => 'payload caps (413), rate limiting (429), guarantees',
     'test_qualify_question.php'   => 'qualification noul question: enumerated ICP must-haves, preponderance, no false-default',
     'test_qualify_behavior.php'   => 'qualification decision tier: clear-fit qualifies, ambiguous confidence, off/shadow/live contract',
+    'test_sequences.php'          => 'Phase 4 campaign sequences: launch, step progression, open/reply tracking, stats',
 ];
 
 $php = PHP_BINARY;

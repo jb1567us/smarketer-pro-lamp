@@ -51,15 +51,69 @@ CREATE TABLE IF NOT EXISTS templates (
     subject VARCHAR(255),
     body TEXT,
     step_order INT DEFAULT 1,
+    delay_days INT NOT NULL DEFAULT 3,
     FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
     INDEX idx_campaign_order (campaign_id, step_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Phase 4: campaign sequences — enrollments, per-step sends, timeline.
+CREATE TABLE IF NOT EXISTS sequence_enrollments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    campaign_id INT NOT NULL,
+    lead_id INT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    current_step INT NOT NULL DEFAULT 1,
+    enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    stopped_at TIMESTAMP NULL,
+    stop_reason VARCHAR(255) NULL,
+    UNIQUE KEY uq_enrollment (campaign_id, lead_id),
+    INDEX idx_enroll_lead (lead_id),
+    INDEX idx_enroll_status (campaign_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sequence_sends (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    enrollment_id INT NOT NULL,
+    campaign_id INT NOT NULL,
+    lead_id INT NOT NULL,
+    template_id INT NULL,
+    step_order INT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'queued',
+    scheduled_at TIMESTAMP NULL,
+    sent_at TIMESTAMP NULL,
+    task_id INT NULL,
+    track_token CHAR(64) NULL,
+    subject VARCHAR(500) NULL,
+    body MEDIUMTEXT NULL,
+    open_count INT NOT NULL DEFAULT 0,
+    first_opened_at TIMESTAMP NULL,
+    last_opened_at TIMESTAMP NULL,
+    error_message TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_track_token (track_token),
+    INDEX idx_send_enroll (enrollment_id, step_order),
+    INDEX idx_send_status (campaign_id, status, scheduled_at),
+    INDEX idx_send_lead (lead_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sequence_events (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    campaign_id INT NOT NULL,
+    lead_id INT NULL,
+    send_id INT NULL,
+    event_type VARCHAR(48) NOT NULL,
+    detail TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_evt_campaign (campaign_id, created_at),
+    INDEX idx_evt_lead (lead_id, created_at),
+    INDEX idx_evt_send (send_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Task Queue: Background tasks for cron processing
 CREATE TABLE IF NOT EXISTS task_queue (
     id INT AUTO_INCREMENT PRIMARY KEY,
     lead_id INT,
-    task_type ENUM('Enrichment', 'EmailOutreach', 'SocialOutreach', 'Qualify', 'Enrich', 'Draft') NOT NULL,
+    task_type ENUM('Enrichment', 'EmailOutreach', 'SocialOutreach', 'Qualify', 'Enrich', 'Draft', 'SequenceSend') NOT NULL,
     payload JSON,
     status ENUM('Pending', 'In Progress', 'Completed', 'Failed') DEFAULT 'Pending',
     scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

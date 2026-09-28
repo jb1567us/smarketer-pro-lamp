@@ -16,7 +16,20 @@
  *     "message_id":     "<abc@mail.example>"   // optional, max 500 chars — the
  *                                              // email Message-ID; enables
  *                                              // idempotent redelivery
+ *     "lead_id":        123,                   // optional: attach the verdict to
+ *     "email":          "buyer@example.com",   // this lead's campaign timeline
+ *     "campaign_id":    7                      // (email falls back to "from")
  *   }
+ *
+ * Phase 4 reply tracking: when the reply resolves to a lead (lead_id, or
+ * email/from matched against leads.email), the classification verdict is
+ * appended to the lead/campaign timeline (sequence_events 'replied' +
+ * 'classified') and any active sequence for the lead is stopped per the
+ * reply intent — any human reply halts automated follow-ups; out-of-office
+ * autoresponders do not. This does NOT apply ReplyRouter routing; the caller
+ * still decides that (the response keeps routed:false). Attachment never
+ * fails the intake, and duplicates (idempotent redelivery) are not
+ * re-attached.
  *
  * Response 200 (routing is NEVER auto-applied — the caller decides):
  *   {
@@ -34,6 +47,12 @@
  *       "note": null             // heuristic verdicts carry a human-readable note instead
  *     },
  *     "routed": false,
+ *     "sequence": {                 // Phase 4: timeline attachment outcome
+ *       "attached": true,           // (false when the lead is unknown or the
+ *       "lead_id": 123,             //  reply was a duplicate redelivery)
+ *       "intent": "positive",
+ *       "stopped": "stopped_reply"  // sequence stop status, or null
+ *     },
  *     "meta": {
  *       "received_at": "2026-09-28T13:41:00-05:00",
  *       "subject_length": 17,
@@ -176,6 +195,7 @@ if ($cached !== null) {
         'duplicate' => true,
         'verdict'   => $cached,
         'routed'    => false,
+        'sequence'  => ['attached' => false, 'lead_id' => null, 'intent' => null, 'stopped' => null],
         'meta'      => [
             'received_at'    => $baseLog['received_at'],
             'subject_length' => strlen($subject),
@@ -198,11 +218,38 @@ $baseLog['duplicate'] = false;
 $baseLog['verdict'] = $verdict;
 \App\ReplyIntake::logIntake($baseLog);
 
+// Phase 4: attach the verdict to the lead/campaign timeline and stop the
+// lead's sequence per reply intent. Never fails the intake; duplicates are
+// not re-attached (the verdict was attached on first classification).
+$sequence = ['attached' => false, 'lead_id' => null, 'intent' => null, 'stopped' => null];
+try {
+    $riLeadId = isset($data['lead_id']) ? (int)$data['lead_id'] : null;
+    $riEmail = isset($data['email']) ? trim((string)$data['email']) : '';
+    if ($riEmail !== '' && !filter_var($riEmail, FILTER_VALIDATE_EMAIL)) {
+        $riEmail = '';
+    }
+    $riCampaignId = isset($data['campaign_id']) ? (int)$data['campaign_id'] : null;
+    if ($riLeadId > 0 || $riEmail !== '' || $from !== '') {
+        $sequence = \App\SequenceManager::recordReply(
+            null,
+            $riLeadId > 0 ? $riLeadId : null,
+            $riCampaignId > 0 ? $riCampaignId : null,
+            $riEmail !== '' ? $riEmail : ($from !== '' ? $from : null),
+            $verdict,
+            $subject
+        );
+    }
+} catch (\Throwable $e) {
+    error_log('[ingest_reply] sequence attachment failed: ' . $e->getMessage());
+}
+$baseLog['sequence_attached'] = $sequence['attached'];
+
 echo json_encode([
     'success'   => true,
     'duplicate' => false,
     'verdict'   => $verdict,
     'routed'    => false,
+    'sequence'  => $sequence,
     'meta'      => [
         'received_at'    => $baseLog['received_at'],
         'subject_length' => strlen($subject),

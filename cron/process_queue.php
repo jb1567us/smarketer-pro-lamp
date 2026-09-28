@@ -106,7 +106,7 @@ try {
         // caps (campaign daily / provider daily / global per-minute). When a
         // cap is hit the task is DEFERRED -- kept Pending with scheduled_at
         // pushed out -- never dropped. The next tick retries it automatically.
-        if (in_array($taskType, ['EmailOutreach', 'SocialOutreach'], true)) {
+        if (in_array($taskType, ['EmailOutreach', 'SocialOutreach', 'SequenceSend'], true)) {
             $payload = json_decode((string)($row['payload'] ?? ''), true);
             $payloadCampaign = isset($payload['campaign_id']) ? (int)$payload['campaign_id'] : 0;
             $decision = $throttles->checkSend(
