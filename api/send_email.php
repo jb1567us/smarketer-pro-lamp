@@ -124,6 +124,37 @@ try {
     $smtpPass = $settings['smtp_pass'] ?? '';
     $smtpEnc = $settings['smtp_encryption'] ?? 'tls';
 
+    // Phase 4: send gate (send_gate.final_decision) — final go/no-go before
+    // a queued send. SHADOW-FIRST: in off/shadow modes the gate evaluates
+    // and logs (JEV answers + agreement land in logs/jev_shadow.jsonl) but
+    // the verdict never blocks. In live mode a denied verdict returns 403.
+    // Compliance gates (suppression, sender identity, CASL, verification,
+    // unsubscribe, quota) run inside the gate BEFORE any JEV verdict can
+    // approve; EmailSender::send()'s Compliance choke point remains the
+    // backstop.
+    try {
+        $gateAction = new \App\Actions\SendGateAction($pdo, new \App\Routers\SmartLLMRouter($pdo));
+        $gate = $gateAction->gate($leadId, [
+            'subject' => $subject,
+            'body' => $body,
+            'provider' => $provider,
+            'campaign_id' => $campaignId,
+        ]);
+        if (\App\Jev\DecisionTier::mode() === 'live' && !$gate['allowed']) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Send gate denied: ' . implode('; ', $gate['blockers']),
+                'gate' => $gate,
+            ]);
+            exit;
+        }
+    } catch (\Throwable $e) {
+        // Gate failure must never change behavior outside live mode; in live
+        // mode SendGateAction::gate is itself fail-closed.
+        error_log('[send_email] send gate evaluation failed: ' . $e->getMessage());
+    }
+
     $sent = false;
     $error = null;
 
