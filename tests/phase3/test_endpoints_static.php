@@ -37,10 +37,12 @@ check('reply_lab.php embeds csrf_token in every form',
     substr_count($lab, 'name="csrf_token"') >= 3);
 
 // --- (e) api/ingest_reply.php auth -------------------------------------------
-check('ingest_reply.php calls requireApiAuth()',
-    strpos($api, "\\App\\Auth::requireApiAuth()") !== false);
+// Phase 4: the call gained an optional per-install API key for headless
+// automation (\App\ApiAuth::ingestKey()); session auth remains the default.
+check('ingest_reply.php calls requireApiAuth() (session or API-key form)',
+    strpos($api, "\\App\\Auth::requireApiAuth(") !== false);
 check('ingest_reply.php requireApiAuth runs before reading php://input',
-    strpos($api, 'requireApiAuth()') < strpos($api, 'php://input'));
+    strpos($api, 'requireApiAuth(') < strpos($api, 'php://input'));
 check('ingest_reply.php rejects non-POST with 405',
     strpos($api, '405') !== false && strpos($api, "REQUEST_METHOD") !== false);
 check('ingest_reply.php 401 contract documented',
