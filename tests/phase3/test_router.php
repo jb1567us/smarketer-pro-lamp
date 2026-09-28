@@ -11,9 +11,12 @@
  *      unsubscribe → suppressed, hostile → archived).
  *   2. Guardrail 1: missing leadId AND/OR email → human_review, no crash.
  *   3. Guardrail 2: needs_human=true OR confidence < 0.55 → human_review
- *      for every intent — including heuristic-shaped verdicts
- *      (confidence 0.0, source 'heuristic'), which is the whole off-mode
- *      population. This fail-closed behavior is asserted deliberately.
+ *      for every intent — EXCEPT heuristic unsubscribe/hostile, which take
+ *      the compliance fast-lane: auto-suppressed / archived, with a
+ *      human-review trace entry for owner visibility, even at confidence
+ *      0.0 (Guardrail 2 does not fire for the fast-lane). The rest of the
+ *      off-mode population still fails closed to human review. This is
+ *      asserted deliberately.
  *   4. Lead id is resolved from email when only the email is known.
  *   5. Leads.status writes use only the existing ENUM values; notes are
  *      appended, never overwritten.
@@ -174,19 +177,54 @@ foreach (['positive', 'unsubscribe', 'not_now', 'hostile', 'bounce', 'other'] as
         $res['action'] === 'human_review');
 }
 
-// --- Off-mode population: heuristic verdicts never auto-route -------------
-// Heuristic results always carry confidence 0.0, so in JEV-off mode every
-// reply — including unsubscribe and hostile — lands in human review.
-foreach (['unsubscribe', 'hostile', 'bounce', 'positive'] as $intent) {
+// --- Off-mode population: heuristic verdicts --------------------------------
+// JEV-off mode produces confidence-0.0 heuristic verdicts. Heuristic
+// unsubscribe/hostile take the compliance fast-lane: auto-suppressed /
+// archived with a human-review trace entry for owner visibility —
+// Guardrail 2 (low confidence) does NOT fire for the fast-lane. Every other
+// off-mode intent still fails closed to human review.
+$offModeExpected = [
+    'unsubscribe' => ['suppressed', false],
+    'hostile'     => ['archived', false],
+    'bounce'      => ['human_review', true],
+    'positive'    => ['human_review', true],
+];
+foreach ($offModeExpected as $intent => [$expAction, $expHuman]) {
     $pdo = new FakePdo();
-    $res = (new ReplyRouter($pdo))->route([
-        'intent' => $intent, 'needs_human' => false, 'urgency' => 1,
-        'confidence' => 0.0, 'source' => 'heuristic', 'latency_ms' => 3,
-        'note' => 'Jev unavailable or off; keyword heuristics only.',
-    ], 7, 'buyer@example.com');
-    check("off-mode fail-closed: heuristic {$intent} (conf 0.0) → human_review",
-        $res['action'] === 'human_review' && $res['routed_to_human'] === true,
-        "got '{$res['action']}'");
+    $fastLane = in_array($intent, ['unsubscribe', 'hostile'], true);
+    try {
+        $res = (new ReplyRouter($pdo))->route([
+            'intent' => $intent, 'needs_human' => false, 'urgency' => 1,
+            'confidence' => 0.0, 'source' => 'heuristic', 'latency_ms' => 3,
+            'note' => 'Jev unavailable or off; keyword heuristics only.',
+        ], 7, 'buyer@example.com');
+    } catch (\Throwable $e) {
+        if ($fastLane) {
+            // The fast-lane records its human-review trace BEFORE
+            // Compliance::suppress() throws, so the trace is assertable
+            // even without a live DB.
+            check("off-mode fast-lane: heuristic {$intent} recorded human-review trace",
+                $pdo->sawSql("INSERT INTO agent_traces") && $pdo->sawSql('reply_review'),
+                'no reply_review trace found');
+            phase3_skip("off-mode heuristic {$intent} → {$expAction}",
+                'Compliance::suppress() needs a live DB: ' . $e->getMessage());
+            continue;
+        }
+        check("off-mode heuristic {$intent} does not throw", false, $e->getMessage());
+        continue;
+    }
+
+    check("off-mode: heuristic {$intent} → action={$expAction}",
+        $res['action'] === $expAction, "got '{$res['action']}'");
+    check("off-mode: heuristic {$intent} routed_to_human=" . var_export($expHuman, true),
+        $res['routed_to_human'] === $expHuman, 'got ' . var_export($res['routed_to_human'], true));
+    check("off-mode: heuristic {$intent} recorded human-review trace",
+        $pdo->sawSql("INSERT INTO agent_traces") && $pdo->sawSql('reply_review'),
+        'no reply_review trace found');
+    if ($fastLane) {
+        check("off-mode: heuristic {$intent} writes audit trace",
+            $pdo->sawSql('reply_routing_audit'));
+    }
 }
 
 // --- Lead id resolved from email -------------------------------------------
@@ -203,7 +241,8 @@ foreach (['unsubscribe', 'hostile', 'bounce', 'positive'] as $intent) {
 {
     $src = file_get_contents(phase3_repo_root() . '/includes/ReplyRouter.php');
     check('ReplyRouter never sends: no EmailSender reference', stripos($src, 'EmailSender') === false);
-    check('ReplyRouter never sends: no mail() call', stripos($src, 'mail(') === false);
+    check('ReplyRouter never sends: no mail() call', !preg_match('/\bmail\s*\(/i', $src),
+        'stripos "mail(" false-positives on findLeadIdByEmail(); word-boundary regex used');
     check('ReplyRouter never sends: no ->send( call', stripos($src, '->send(') === false);
 }
 

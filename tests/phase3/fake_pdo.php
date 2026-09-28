@@ -7,6 +7,11 @@
  */
 declare(strict_types=1);
 
+// Load App\PDO / App\PDOStatement eagerly: FakeStatement extends
+// \App\PDOStatement, and the autoloader cannot resolve it (no dedicated
+// includes/PDOStatement.php file — both classes live in includes/PDO.php).
+require_once phase3_repo_root() . '/includes/PDO.php';
+
 /** One fake statement: records execute() params, returns scripted fetch rows. */
 class FakeStatement extends \App\PDOStatement
 {
