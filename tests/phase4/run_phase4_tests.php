@@ -10,6 +10,7 @@ $repo = dirname(__DIR__, 2);
 $newFiles = [
     $repo . '/includes/ApiAuth.php',
     $repo . '/includes/Auth.php',
+    $repo . '/includes/Actions/QualifyLeadAction.php',
     $repo . '/api/ingest_reply.php',
 ];
 
@@ -17,6 +18,8 @@ $testFiles = [
     'test_ingest_auth.php'        => 'API-key extraction/validation, key generation, Auth wiring',
     'test_ingest_idempotency.php' => 'dedupe keys, store cap, duplicate short-circuit',
     'test_ingest_limits.php'      => 'payload caps (413), rate limiting (429), guarantees',
+    'test_qualify_question.php'   => 'qualification noul question: enumerated ICP must-haves, preponderance, no false-default',
+    'test_qualify_behavior.php'   => 'qualification decision tier: clear-fit qualifies, ambiguous confidence, off/shadow/live contract',
 ];
 
 $php = PHP_BINARY;
