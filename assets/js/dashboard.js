@@ -1753,3 +1753,287 @@ async function runSmtpDiagnostics() {
     logsPre.scrollTop = logsPre.scrollHeight;
 }
 
+
+/* ==========================================================================
+ * Ideal Customer Profile (api/icp.php)
+ * ========================================================================== */
+
+const ICP_DIMENSION_KEYS = ['company_size', 'industry_fit', 'tech_stack', 'target_title', 'geography', 'trigger_signals'];
+
+function icpCsrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+}
+
+async function icpPost(payload) {
+    const res = await fetch('api/icp.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': icpCsrfToken() },
+        body: JSON.stringify(payload)
+    });
+    return res.json();
+}
+
+function icpEscape(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+}
+
+function icpStatus(msg, isError) {
+    const el = document.getElementById('icp-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    el.className = 'text-[11px] ' + (isError ? 'text-rose-400' : 'text-emerald-400');
+    if (!isError) setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+function icpListToText(arr) {
+    return Array.isArray(arr) ? arr.join(', ') : '';
+}
+
+function icpSetText(id, arr) {
+    const el = document.getElementById(id);
+    if (el) el.value = icpListToText(arr);
+}
+
+/** Load the full ICP state into the settings form. Called when the settings tab opens. */
+async function loadIcp() {
+    if (!document.getElementById('icp-weights')) return; // section not on this page
+    try {
+        const res = await fetch('api/icp.php');
+        const result = await res.json();
+        if (!result.success) {
+            icpStatus('Could not load ICP: ' + (result.error || 'unknown error'), true);
+            return;
+        }
+        const d = result.data || {};
+        const profile = d.profile || {};
+        const dims = d.dimensions || {};
+        const labels = d.dimension_labels || {};
+
+        document.getElementById('icp-profile-name').textContent = profile.name || 'Default ICP';
+        document.getElementById('icp-pain').value = profile.pain_statement || '';
+
+        // (a) Day-zero targets
+        const cfg = k => (dims[k] && dims[k].target_config) || {};
+        document.getElementById('icp-t-company_size-min').value = cfg('company_size').min_employees ?? '';
+        document.getElementById('icp-t-company_size-max').value = cfg('company_size').max_employees ?? '';
+        icpSetText('icp-t-industry_fit-include', cfg('industry_fit').include);
+        icpSetText('icp-t-industry_fit-exclude', cfg('industry_fit').exclude);
+        icpSetText('icp-t-tech_stack-keywords', cfg('tech_stack').keywords);
+        icpSetText('icp-t-target_title-titles', cfg('target_title').titles);
+        icpSetText('icp-t-geography-countries', cfg('geography').countries);
+        icpSetText('icp-t-geography-regions', cfg('geography').regions);
+        icpSetText('icp-t-trigger_signals-signals', cfg('trigger_signals').signals);
+
+        // (b) Weight editor
+        const wrap = document.getElementById('icp-weights');
+        wrap.innerHTML = '';
+        ICP_DIMENSION_KEYS.forEach(key => {
+            const dim = dims[key] || { weight: 0, buyer_locked: false };
+            const locked = !!dim.buyer_locked;
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-white/5';
+            row.innerHTML =
+                '<div class="flex-1 min-w-0">' +
+                    '<div class="text-xs font-bold text-slate-200">' + icpEscape(labels[key] || key) + '</div>' +
+                    '<div class="text-[10px] text-slate-500">' +
+                        (locked
+                            ? '<span class="text-amber-400 font-bold">🔒 buyer-locked</span> <button type="button" onclick="icpUnlockDimension(\'' + icpEscape(key) + '\')" class="ml-1 underline text-slate-400 hover:text-slate-200">unlock</button>'
+                            : '<span class="text-emerald-400">🔓 auto-tunable</span>') +
+                    '</div>' +
+                '</div>' +
+                '<input type="number" id="icp-w-' + icpEscape(key) + '" min="0" max="100" value="' + Number(dim.weight || 0) + '" ' +
+                    'oninput="icpRefreshWeightSum()" ' +
+                    'class="w-20 bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2 outline-none text-sm text-slate-200 text-center focus:border-emerald-500/50 transition">';
+            wrap.appendChild(row);
+        });
+        icpRefreshWeightSum();
+
+        // (c) Exclusion list
+        const excl = d.exclusions || [];
+        const exclWrap = document.getElementById('icp-exclusions');
+        exclWrap.innerHTML = '';
+        if (!excl.length) {
+            exclWrap.innerHTML = '<p class="text-[11px] text-slate-500 italic">No vetoes yet — every lead scores normally.</p>';
+        }
+        excl.forEach(e => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 p-2.5 rounded-xl bg-rose-500/5 border border-rose-500/20';
+            row.innerHTML =
+                '<span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/25 shrink-0">' + icpEscape(e.exclusion_type) + '</span>' +
+                '<div class="flex-1 min-w-0">' +
+                    '<div class="text-xs text-slate-200 font-semibold truncate">' + icpEscape(e.value) + '</div>' +
+                    (e.note ? '<div class="text-[10px] text-slate-500 truncate">' + icpEscape(e.note) + '</div>' : '') +
+                '</div>' +
+                '<button type="button" data-exc-id="' + Number(e.id) + '" class="exc-del text-[10px] font-bold text-rose-400 hover:text-rose-200 uppercase tracking-wider shrink-0">Remove</button>';
+            exclWrap.appendChild(row);
+        });
+        exclWrap.querySelectorAll('.exc-del').forEach(btn => {
+            btn.addEventListener('click', () => icpDeleteExclusion(Number(btn.dataset.excId)));
+        });
+
+        // (d) Thresholds
+        const t = d.thresholds || {};
+        document.getElementById('icp-threshold-qualify').value = t.qualify ?? 75;
+        document.getElementById('icp-threshold-review').value = t.review ?? 50;
+
+        // Weight history
+        const hist = d.weight_history || [];
+        const histWrap = document.getElementById('icp-history');
+        histWrap.innerHTML = '';
+        if (!hist.length) {
+            histWrap.innerHTML = '<p class="text-[11px] text-slate-500 italic">No adjustments yet.</p>';
+        }
+        hist.forEach(h => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-2 p-2 rounded-lg bg-slate-900/40 border border-white/5';
+            row.innerHTML =
+                '<span class="font-semibold text-slate-300">' + icpEscape(h.dimension_key) + '</span>' +
+                '<span class="text-slate-500">' + Number(h.old_weight) + ' → ' + Number(h.new_weight) + '</span>' +
+                '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ' +
+                    (h.created_by === 'auto_tuner' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-emerald-500/15 text-emerald-300') + '">' +
+                    icpEscape(h.created_by === 'auto_tuner' ? 'auto' : 'manual') + '</span>' +
+                (h.reason ? '<span class="text-slate-500 truncate flex-1">' + icpEscape(h.reason) + '</span>' : '') +
+                '<span class="text-slate-600 ml-auto shrink-0">' + icpEscape(h.created_at || '') + '</span>';
+            histWrap.appendChild(row);
+        });
+    } catch (e) {
+        icpStatus('Could not load ICP: ' + e.message, true);
+    }
+}
+
+function icpRefreshWeightSum() {
+    let sum = 0;
+    ICP_DIMENSION_KEYS.forEach(key => {
+        const el = document.getElementById('icp-w-' + key);
+        if (el) sum += Number(el.value) || 0;
+    });
+    const el = document.getElementById('icp-weight-sum');
+    el.textContent = sum;
+    el.className = 'text-xl font-bold ' + (sum === 100 ? 'text-emerald-400' : 'text-rose-400');
+}
+
+/** (a) Save the day-zero founder hypothesis: pain statement + dimension targets. */
+async function saveIcpHypothesis() {
+    const textToList = id => {
+        const el = document.getElementById(id);
+        if (!el || !el.value.trim()) return [];
+        return el.value.split(',').map(s => s.trim()).filter(Boolean);
+    };
+    const intOrNull = id => {
+        const el = document.getElementById(id);
+        const v = el ? el.value.trim() : '';
+        return v === '' ? null : Number(v);
+    };
+    const payload = {
+        action: 'save_hypothesis',
+        pain_statement: document.getElementById('icp-pain').value,
+        targets: {
+            company_size: { min_employees: intOrNull('icp-t-company_size-min'), max_employees: intOrNull('icp-t-company_size-max') },
+            industry_fit: { include: textToList('icp-t-industry_fit-include'), exclude: textToList('icp-t-industry_fit-exclude') },
+            tech_stack: { keywords: textToList('icp-t-tech_stack-keywords') },
+            target_title: { titles: textToList('icp-t-target_title-titles') },
+            geography: { countries: textToList('icp-t-geography-countries'), regions: textToList('icp-t-geography-regions') },
+            trigger_signals: { signals: textToList('icp-t-trigger_signals-signals') },
+        }
+    };
+    try {
+        const result = await icpPost(payload);
+        if (result.success) icpStatus('Hypothesis saved.');
+        else icpStatus('Save failed: ' + (result.error || 'unknown error'), true);
+    } catch (e) {
+        icpStatus('Save failed: ' + e.message, true);
+    }
+}
+
+/** (b) Save the full weight vector. Server validates the sum-to-100 invariant. */
+async function saveIcpWeights() {
+    const weights = {};
+    ICP_DIMENSION_KEYS.forEach(key => {
+        const el = document.getElementById('icp-w-' + key);
+        weights[key] = el ? Number(el.value) || 0 : 0;
+    });
+    try {
+        const result = await icpPost({ action: 'save_weights', weights, reason: 'manual weight edit' });
+        if (result.success) {
+            icpStatus('Weights saved — edited dimensions are now buyer-locked.');
+            loadIcp(); // refresh lock badges + history
+        } else {
+            icpStatus('Save failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Save failed: ' + e.message, true);
+    }
+}
+
+/** (c) Add / remove anti-persona vetoes. */
+async function icpAddExclusion() {
+    try {
+        const result = await icpPost({
+            action: 'add_exclusion',
+            exclusion_type: document.getElementById('icp-exc-type').value,
+            value: document.getElementById('icp-exc-value').value,
+            note: document.getElementById('icp-exc-note').value
+        });
+        if (result.success) {
+            document.getElementById('icp-exc-value').value = '';
+            document.getElementById('icp-exc-note').value = '';
+            icpStatus('Veto added.');
+            loadIcp();
+        } else {
+            icpStatus('Add failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Add failed: ' + e.message, true);
+    }
+}
+
+async function icpDeleteExclusion(id) {
+    if (!confirm('Remove this veto?')) return;
+    try {
+        const result = await icpPost({ action: 'delete_exclusion', id });
+        if (result.success) {
+            icpStatus('Veto removed.');
+            loadIcp();
+        } else {
+            icpStatus('Remove failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Remove failed: ' + e.message, true);
+    }
+}
+
+/** (b) Release a buyer lock so the auto-tuner may adjust the dimension again. */
+async function icpUnlockDimension(key) {
+    if (!confirm('Unlock "' + key + '"? The auto-tuner may change its weight again.')) return;
+    try {
+        const result = await icpPost({ action: 'unlock_dimension', dimension_key: key });
+        if (result.success) {
+            icpStatus('Dimension unlocked.');
+            loadIcp();
+        } else {
+            icpStatus('Unlock failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Unlock failed: ' + e.message, true);
+    }
+}
+
+/** (d) Save qualification thresholds. */
+async function saveIcpThresholds() {
+    const qualify = Number(document.getElementById('icp-threshold-qualify').value);
+    const review = Number(document.getElementById('icp-threshold-review').value);
+    if (!(qualify >= 1 && qualify <= 100) || !(review >= 0 && review < qualify)) {
+        icpStatus('Invalid thresholds: need 0 <= review < qualify <= 100.', true);
+        return;
+    }
+    try {
+        const result = await icpPost({ action: 'save_thresholds', qualify, review });
+        if (result.success) icpStatus('Thresholds saved.');
+        else icpStatus('Save failed: ' + (result.error || 'unknown error'), true);
+    } catch (e) {
+        icpStatus('Save failed: ' + e.message, true);
+    }
+}

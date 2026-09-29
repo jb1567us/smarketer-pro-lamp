@@ -52,6 +52,8 @@ const SETTINGS_ALLOWLIST = [
     // AND a key is configured.
     'verification_required', 'verification_provider', 'verification_api_key',
     'verification_risky_action', 'verification_strict', 'verification_cache_days',
+    // ICP scoring thresholds (auto-qualify >= qualify, human review review..qualify)
+    'icp_threshold_qualify', 'icp_threshold_review',
 ];
 
 /**
