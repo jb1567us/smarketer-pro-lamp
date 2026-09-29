@@ -45,8 +45,15 @@ final class SequenceManager
     /** Lead statuses eligible for sequence enrollment at launch. */
     private const ELIGIBLE_LEAD_STATUSES = ['New', 'Enriched', 'Drafted', 'Qualified'];
 
-    /** Lead statuses that must never be mailed (checked again at send time). */
-    private const TERMINAL_LEAD_STATUSES = ['Converted', 'Unqualified'];
+    /**
+     * Lead statuses that may still receive a sequence send, checked again at
+     * send time (SendSequenceStepAction) and on the post-send Contacted mark
+     * below. Fail-closed by construction: 'Needs Review', 'Converted' and
+     * 'Unqualified' — and any status not listed here — are never mailed.
+     * 'Contacted' is included because an in-flight sequence legitimately
+     * re-mails leads for steps 2+ (enrollment, not status, is the authority).
+     */
+    public const SENDABLE_LEAD_STATUSES = ['New', 'Enriched', 'Drafted', 'Qualified', 'Contacted'];
 
     /** Reply intents that stop the sequence (null = keep the sequence going). */
     private const INTENT_STOP_MAP = [
@@ -214,6 +221,8 @@ final class SequenceManager
     /**
      * Enqueue one sequence step as a `SequenceSend` task_queue row.
      * Dedupes: never double-queues a step that is queued/sending/sent/simulated.
+     * Refuses (returns null) when the lead is not in SENDABLE_LEAD_STATUSES —
+     * a 'Needs Review' lead can never have a send scheduled for it.
      * Returns the sequence_sends id, or null when there is nothing to queue.
      */
     public static function queueStep(
@@ -235,6 +244,16 @@ final class SequenceManager
         }
         $campaignId = (int)$enrollment['campaign_id'];
         $leadId = (int)$enrollment['lead_id'];
+
+        // Fail-closed: never schedule a send for a lead outside the explicit
+        // sendable allowlist (e.g. 'Needs Review'). Launch allowlists at
+        // enrollment; this guards progression and any future direct callers.
+        $lstmt = $pdo->prepare("SELECT status FROM leads WHERE id = ?");
+        $lstmt->execute([$leadId]);
+        $leadStatus = (string)($lstmt->fetch(\App\PDO::FETCH_ASSOC)['status'] ?? '');
+        if (!in_array($leadStatus, self::SENDABLE_LEAD_STATUSES, true)) {
+            return null;
+        }
 
         $tstmt = $pdo->prepare(
             "SELECT id FROM templates WHERE campaign_id = ? AND step_order = ? LIMIT 1"
@@ -340,7 +359,14 @@ final class SequenceManager
         $stepOrder = (int)$send['step_order'];
 
         try {
-            $lstmt = $pdo->prepare("UPDATE leads SET status = 'Contacted' WHERE id = ? AND status NOT IN ('Converted', 'Unqualified')");
+            // Post-send bookkeeping marks the lead Contacted, but only from an
+            // explicitly sendable status (fail-closed): a lead that flipped to
+            // 'Needs Review' / Converted / Unqualified mid-flight must not be
+            // re-marked Contacted and thereby re-admitted to future sends.
+            $sendable = "'" . implode("','", self::SENDABLE_LEAD_STATUSES) . "'";
+            $lstmt = $pdo->prepare(
+                "UPDATE leads SET status = 'Contacted' WHERE id = ? AND status IN ({$sendable})"
+            );
             $lstmt->execute([$leadId]);
         } catch (\Throwable $e) {
             error_log('[SequenceManager] lead Contacted mark failed: ' . $e->getMessage());

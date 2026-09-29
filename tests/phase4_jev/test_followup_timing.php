@@ -77,6 +77,10 @@ check('Converted skip reason', str_contains((string)$v['skip_reason'], 'Converte
 $v = decide(timingLead(['status' => 'Unqualified']), activeCampaign(), 1, $NOW - 86400 * 3);
 check('Unqualified skips', $v['next_touch'] === 'skip');
 
+$v = decide(timingLead(['status' => 'Needs Review']), activeCampaign(), 1, $NOW - 86400 * 3);
+check('Needs Review skips (under review: never touch)', $v['next_touch'] === 'skip' && $v['delay_days'] === null);
+check('Needs Review skip reason', str_contains((string)$v['skip_reason'], 'Needs Review'), var_export($v, true));
+
 $v = decide(timingLead(), ['is_active' => 0, 'status' => 'paused', 'paused_reason' => 'owner halt'], 1, $NOW - 86400 * 3);
 check('paused campaign skips', $v['next_touch'] === 'skip');
 check('paused skip reason', str_contains((string)$v['skip_reason'], 'paused'), var_export($v, true));

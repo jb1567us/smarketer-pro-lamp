@@ -53,7 +53,7 @@ class FollowUpTimingAction extends AbstractAction
     public const MAX_TOUCHES = 5;
 
     /** Lead statuses that end the sequence outright. */
-    public const TERMINAL_STATUSES = ['Converted', 'Unqualified'];
+    public const TERMINAL_STATUSES = ['Converted', 'Unqualified', 'Needs Review'];
 
     /**
      * ActionInterface contract. Timing is stateless and driven via decide();

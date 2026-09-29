@@ -10,9 +10,11 @@
  *   1. Boundary routing: fit 75 -> qualified, 74/50 -> needs_review,
  *      49 -> unqualified (single-dimension weights for exact control).
  *   2. Custom thresholds honored by normalizeJevAnswers.
- *   3. statusForVerdict: the schema has no review ENUM, so the review band
- *      maps to 'Unqualified' (fail-closed); the notes marker carries
- *      "Needs Review" so a human can flip the lead.
+ *   3. statusForVerdict: the review band maps to the real 'Needs Review'
+ *      leads.status ENUM value (fail-closed: 'Needs Review' is in neither
+ *      SequenceManager::ELIGIBLE_LEAD_STATUSES nor SENDABLE_LEAD_STATUSES,
+ *      so review-band leads can never be enrolled or mailed until a human
+ *      approves them to 'Qualified').
  *   4. IcpProfile::thresholds(): fail-closed defaults, clamping, and the
  *      review < qualify repair rule.
  *   5. IcpProfile::updateWeights(): sum-to-100 enforcement (rejects 99 and
@@ -72,10 +74,12 @@ check('fit 59 with review=60 -> unqualified', $n['verdict'] === 'unqualified');
 echo "3. status mapping and review-band marker:\n";
 check("qualified -> 'Qualified'",
     QualifyLeadAction::statusForVerdict('qualified') === 'Qualified');
-check("needs_review -> 'Unqualified' (fail-closed; schema has no review ENUM)",
-    QualifyLeadAction::statusForVerdict('needs_review') === 'Unqualified');
+check("needs_review -> 'Needs Review' (real status; allowlist-gated out of sequences)",
+    QualifyLeadAction::statusForVerdict('needs_review') === 'Needs Review');
 check("unqualified -> 'Unqualified'",
     QualifyLeadAction::statusForVerdict('unqualified') === 'Unqualified');
+check("unknown verdict -> 'Unqualified' (fail-closed)",
+    QualifyLeadAction::statusForVerdict('bogus') === 'Unqualified');
 
 $date = date('Y-m-d');
 $reviewMarker = QualifyLeadAction::notesMarker([
@@ -83,10 +87,10 @@ $reviewMarker = QualifyLeadAction::notesMarker([
     'profile' => 'Test ICP', 'reason' => 'Jev weighted ICP fit 74/100',
     'dimensions' => array_fill_keys($DIMS, 7),
     'thresholds' => $TH,
-], 'Unqualified');
+], 'needs_review');
 check('review-band marker says "Needs Review" with the qualify threshold',
     str_contains($reviewMarker, 'Needs Review (fit 74/100, below qualify threshold 75)'));
-check('review-band marker is the Unqualified-path marker (no qualified status)',
+check('review-band marker carries no qualified status',
     !str_contains($reviewMarker, ']: Qualified'));
 
 $qualMarker = QualifyLeadAction::notesMarker([
@@ -118,7 +122,7 @@ try {
         }
     };
     $sh("mysql -u root -e \"DROP DATABASE IF EXISTS icp_scoring_test; CREATE DATABASE icp_scoring_test CHARACTER SET utf8mb4;\"");
-    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON icp_scoring_test.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
+    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON icp_scoring_test.* TO '{$dbUser}'@'%'; GRANT ALL ON icp_scoring_test.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
     if (!is_dir($configDir)) {
         mkdir($configDir, 0755, true);
     }

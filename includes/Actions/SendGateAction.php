@@ -54,8 +54,13 @@ class SendGateAction extends AbstractAction
     /** Hard timeout for the batched gate call (plan: <=8s). */
     public const TIMEOUT_S = 8;
 
-    /** CASL-safe default: unknown country without express consent is blocked. */
-    public const BLOCKED_STATUSES = ['Converted', 'Unqualified'];
+    /**
+     * Lead statuses that hard-block the send gate. 'Needs Review' leads are
+     * awaiting human qualification and must never be mailed; Converted /
+     * Unqualified are terminal. (The sequence path additionally enforces
+     * SequenceManager::SENDABLE_LEAD_STATUSES before this gate is reached.)
+     */
+    public const BLOCKED_STATUSES = ['Converted', 'Unqualified', 'Needs Review'];
 
     /**
      * ActionInterface contract. Fail-closed: any exception -> false (no send).
@@ -177,6 +182,11 @@ class SendGateAction extends AbstractAction
         $email = strtolower(trim((string)($lead['email'] ?? '')));
         if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return ['invalid-email'];
+        }
+
+        // Terminal / under-review leads are never mailed, whatever else holds.
+        if (in_array((string)($lead['status'] ?? ''), self::BLOCKED_STATUSES, true)) {
+            $blockers[] = 'blocked-lead-status';
         }
 
         if (EmailSender::isPlaceholderAddress($email)) {

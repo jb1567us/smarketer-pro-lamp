@@ -74,16 +74,22 @@ class QualifyLeadAction extends AbstractAction
     /**
      * Map a scoring verdict to a leads.status ENUM value.
      *
-     * The schema has no 'Needs Review' status (ENUM is
-     * New/Enriched/Contacted/Qualified/Unqualified/Converted/Drafted), so the
-     * 50-75 review band is deliberately mapped to 'Unqualified': it keeps
-     * borderline leads OUT of sequences (fail-closed — 'Unqualified' is not
-     * in SequenceManager::ELIGIBLE_LEAD_STATUSES) while the notes marker
-     * records "Needs Review" so a human can flip the lead to 'Qualified'.
+     * The 50-75 review band maps to the real 'Needs Review' ENUM value of
+     * leads.status (New/Enriched/Contacted/Qualified/Unqualified/Converted/
+     * Drafted/'Needs Review'): borderline leads stay OUT of sequences
+     * (fail-closed — 'Needs Review' is in neither
+     * SequenceManager::ELIGIBLE_LEAD_STATUSES nor
+     * SequenceManager::SENDABLE_LEAD_STATUSES) until a human reviews them.
+     * Approval flips the lead to 'Qualified' — the only path to eligibility.
+     * Any unrecognized verdict stays 'Unqualified' (fail-closed).
      */
     public static function statusForVerdict(string $verdict): string
     {
-        return $verdict === 'qualified' ? 'Qualified' : 'Unqualified';
+        return match ($verdict) {
+            'qualified' => 'Qualified',
+            'needs_review' => 'Needs Review',
+            default => 'Unqualified',
+        };
     }
 
     /**

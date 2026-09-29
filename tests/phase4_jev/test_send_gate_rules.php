@@ -105,6 +105,15 @@ check('invalid-email blocker first', ($v['blockers'][0] ?? '') === 'invalid-emai
 check('missing lead blocked', $v['allowed'] === false);
 check('lead-not-found blocker', in_array('lead-not-found', $v['blockers'], true));
 
+// --- 5b. Blocked lead statuses: terminal / under-review never mailed --------
+[$v] = runGate(cleanLead(['status' => 'Needs Review']));
+check('Needs Review lead blocked', $v['allowed'] === false);
+check('blocked-lead-status blocker named', in_array('blocked-lead-status', $v['blockers'], true));
+[$v] = runGate(cleanLead(['status' => 'Converted']));
+check('Converted lead blocked', $v['allowed'] === false && in_array('blocked-lead-status', $v['blockers'], true));
+[$v] = runGate(cleanLead(['status' => 'Unqualified']));
+check('Unqualified lead blocked', $v['allowed'] === false && in_array('blocked-lead-status', $v['blockers'], true));
+
 // --- 6. Sender identity gate -----------------------------------------------
 [$v] = runGate(cleanLead(), ['company_legal_name' => '']);
 check('missing legal name blocked', $v['allowed'] === false);

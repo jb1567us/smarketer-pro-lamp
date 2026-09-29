@@ -159,7 +159,11 @@ class SendSequenceStepAction extends AbstractAction implements TaskAware
         if ($to === '' || !filter_var($to, FILTER_VALIDATE_EMAIL)) {
             throw new OutreachException("Lead {$leadId} has no valid email address.");
         }
-        if (in_array($lead['status'] ?? '', ['Converted', 'Unqualified'], true)) {
+        // Fail-closed send-time gate: the lead must be in an explicitly
+        // sendable status (SequenceManager::SENDABLE_LEAD_STATUSES). A lead
+        // that flipped to 'Needs Review' — or Converted / Unqualified, or any
+        // unknown status — after enrollment is skipped, never mailed.
+        if (!in_array($lead['status'] ?? '', SequenceManager::SENDABLE_LEAD_STATUSES, true)) {
             $this->markSkipped($sendId, "lead status is {$lead['status']}");
             return;
         }

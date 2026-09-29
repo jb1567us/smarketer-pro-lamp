@@ -25,6 +25,7 @@ $testFiles = [
     'test_followup_timing.php'   => 'follow-up cadence fallback, JEV normalization + sanity clamp',
     'test_decision_modes.php'    => 'off/shadow/live contract at the DecisionTier level + send_email.php wiring',
     'test_fit_scoring.php'        => 'weighted ICP fit scoring: veto, weighted math, threshold bands, shadow/live, markers, execute()',
+    'test_needs_review_eligibility.php' => 'needs_review leads: never enrolled/scheduled/sent; approval to Qualified is the only path',
 ];
 
 $php = PHP_BINARY;

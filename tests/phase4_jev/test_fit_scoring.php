@@ -17,8 +17,9 @@
  *      timeout-override path builds its own provider, so a scripted provider
  *      is exercised without the override — same as test_decision_modes.php):
  *      per-dimension scores + weighted fit + agreement land in jev_shadow.jsonl.
- *   7. statusForVerdict: review band maps to 'Unqualified' (fail-closed;
- *      the schema has no 'Needs Review' ENUM value).
+ *   7. statusForVerdict: review band maps to the real 'needs_review'
+ *      leads.status ENUM value (fail-closed: allowlist-gated out of every
+ *      sequence path until a human approves the lead to 'Qualified').
  *   8. notesMarker formats: legacy byte-identical, jev with dimension
  *      breakdown, needs-review marker, veto marker.
  *   9. QualifyLeadAction::execute veto path end-to-end (fake PDO): status,
@@ -407,10 +408,12 @@ check('live: Jev error fails over to legacy', $answers === $legacyFn());
 // --- 7. Status mapping ---------------------------------------------------------
 check("statusForVerdict: qualified -> 'Qualified'",
     QualifyLeadAction::statusForVerdict('qualified') === 'Qualified');
-check("statusForVerdict: needs_review -> 'Unqualified' (fail-closed; no such ENUM value)",
-    QualifyLeadAction::statusForVerdict('needs_review') === 'Unqualified');
+check("statusForVerdict: needs_review -> 'Needs Review' (real status; allowlist-gated out of sequences)",
+    QualifyLeadAction::statusForVerdict('needs_review') === 'Needs Review');
 check("statusForVerdict: unqualified -> 'Unqualified'",
     QualifyLeadAction::statusForVerdict('unqualified') === 'Unqualified');
+check("statusForVerdict: unknown verdict -> 'Unqualified' (fail-closed)",
+    QualifyLeadAction::statusForVerdict('bogus') === 'Unqualified');
 
 // --- 8. Notes markers ------------------------------------------------------------
 $date = date('Y-m-d');
@@ -435,7 +438,7 @@ $marker = QualifyLeadAction::notesMarker([
     'profile' => 'Test ICP', 'reason' => 'Jev weighted ICP fit 62/100',
     'dimensions' => array_fill_keys(IcpProfile::DIMENSIONS, 6),
     'thresholds' => $thresholds,
-], 'Unqualified');
+], 'needs_review');
 check('notesMarker: review band is flagged Needs Review with the threshold',
     str_contains($marker, 'Needs Review (fit 62/100, below qualify threshold 75)'));
 

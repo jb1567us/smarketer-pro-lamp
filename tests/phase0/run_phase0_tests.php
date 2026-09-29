@@ -46,7 +46,7 @@ try {
         if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
     };
     $sh("mysql -u root -e \"DROP DATABASE IF EXISTS phase0_test; CREATE DATABASE phase0_test CHARACTER SET utf8mb4;\"");
-    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON phase0_test.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
+    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON phase0_test.* TO '{$dbUser}'@'%'; GRANT ALL ON phase0_test.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
     file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'phase0_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
