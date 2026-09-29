@@ -122,6 +122,19 @@ class Auth
         return !empty($_SESSION['auth_user']) && !empty($_SESSION['auth_ok']);
     }
 
+    /**
+     * The logged-in username, or null when not authenticated.
+     * Used as the audit identity for human-gated actions (e.g. review
+     * decisions): the API deliberately has no API-key bypass, so this
+     * always names the session user who clicked the button.
+     */
+    public static function currentUsername(): ?string
+    {
+        self::startSession();
+        $user = $_SESSION['auth_user'] ?? null;
+        return is_string($user) && $user !== '' ? $user : null;
+    }
+
     public static function attemptLogin(string $username, string $password): bool
     {
         self::startSession();
