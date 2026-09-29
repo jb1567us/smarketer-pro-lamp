@@ -124,7 +124,7 @@ class ScoreLeadFitAction extends AbstractAction
 
         $state = [
             'persona' => 'B2B ICP Specialist',
-            'goal' => 'Score this lead\'s fit against the active ICP profile on six dimensions.',
+            'goal' => 'Score this lead\'s fit against the active ICP profile on five dimensions.',
             'lead_context' => self::leadContext($lead),
             'icp_profile' => $profile['key'],
             'dimensions_scored' => array_keys($weights),
@@ -509,12 +509,6 @@ class ScoreLeadFitAction extends AbstractAction
                     return $t;
                 }
                 return 'Target industries: B2B industries that buy through proactive outreach (marketing agencies, B2B service firms, SaaS, consultancies, professional services).';
-            case 'tech_stack':
-                $kw = $list($config['keywords'] ?? []);
-                if ($kw !== '') {
-                    return "Compatible/adjacent technology: {$kw}.";
-                }
-                return 'Target tech stack: a modern web and sales-tech footprint compatible with outreach automation (active website plus visible CRM/marketing/sales tooling).';
             case 'target_title':
                 $titles = $list($config['titles'] ?? []);
                 if ($titles !== '') {
@@ -559,7 +553,7 @@ class ScoreLeadFitAction extends AbstractAction
     }
 
     /**
-     * Convert the six raw Jev score answers into the weighted result.
+     * Convert the five raw Jev score answers into the weighted result.
      * Each answer's position (0..9) becomes 0-100 via scoreToPercent() and a
      * 1-10 display score; the fit score is the weight-weighted sum.
      *
@@ -572,6 +566,10 @@ class ScoreLeadFitAction extends AbstractAction
         $dimensions = [];
         $pcts = [];
         $confidences = [];
+        // Belt-and-braces: weight keys for dimensions the model no longer
+        // scores (e.g. a stale tech_stack row left in icp_dimensions) must
+        // never inflate the denominator and dilute every score.
+        $weights = array_intersect_key($weights, array_fill_keys(IcpProfile::DIMENSIONS, true));
         $weightSum = max(1, (int)array_sum($weights));
         $fitAccum = 0.0;
 

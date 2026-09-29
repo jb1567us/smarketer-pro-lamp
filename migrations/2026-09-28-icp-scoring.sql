@@ -36,8 +36,10 @@ CREATE TABLE IF NOT EXISTS icp_dimensions (
 -- (enforced in App\Icp\IcpProfile::updateWeights, not in the DB).
 -- buyer_locked: 1 once a human edits the weight by hand; auto-tuning skips
 -- locked dimensions. The settings UI offers an unlock per dimension.
--- dimension_key: company_size | industry_fit | tech_stack | target_title |
---                geography | trigger_signals
+-- dimension_key: company_size | industry_fit | target_title | geography |
+--                trigger_signals
+-- (tech_stack was retired 2026-09-29; lead-enrichment keeps its own
+-- tech_stack *field*, which is observed lead data, not a scoring dimension.)
 
 -- Anti-persona: hard veto list. Any match disqualifies the lead outright.
 CREATE TABLE IF NOT EXISTS icp_exclusions (
@@ -77,12 +79,11 @@ VALUES (1, 'Default ICP', '', 1);
 
 INSERT IGNORE INTO icp_dimensions (profile_id, dimension_key, weight, buyer_locked, target_config)
 VALUES
-    (1, 'company_size',   17, 0, '{"min_employees":null,"max_employees":null}'),
-    (1, 'industry_fit',   17, 0, '{"include":[],"exclude":[]}'),
-    (1, 'tech_stack',     17, 0, '{"keywords":[]}'),
-    (1, 'target_title',   17, 0, '{"titles":[]}'),
-    (1, 'geography',      16, 0, '{"countries":[],"regions":[]}'),
-    (1, 'trigger_signals',16, 0, '{"signals":[]}');
+    (1, 'company_size',   20, 0, '{"min_employees":null,"max_employees":null}'),
+    (1, 'industry_fit',   20, 0, '{"include":[],"exclude":[]}'),
+    (1, 'target_title',   20, 0, '{"titles":[]}'),
+    (1, 'geography',      20, 0, '{"countries":[],"regions":[]}'),
+    (1, 'trigger_signals',20, 0, '{"signals":[]}');
 
 -- Scoring thresholds as settings rows: auto-qualify >= 75, human review
 -- 50-75, disqualified < 50.

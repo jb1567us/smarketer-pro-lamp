@@ -30,8 +30,8 @@ function check(string $name, bool $cond, string $detail = ''): void
     }
 }
 
-$W = ['company_size' => 17, 'industry_fit' => 17, 'tech_stack' => 17,
-      'target_title' => 17, 'geography' => 16, 'trigger_signals' => 16];
+$W = ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+      'geography' => 20, 'trigger_signals' => 20];
 
 // --- A. engagement signal mapping --------------------------------------
 echo "A. signalForIntent:\n";
@@ -76,15 +76,15 @@ check('partial correlation in (-1,1)', $r !== null && $r > -1.0 && $r < 1.0, 'r=
 echo "D. proposeWeights:\n";
 
 $new = A::proposeWeights($W, [], ['company_size' => 0.8]);
-check('predictive dim nudged up', $new['company_size'] > 17, json_encode($new));
+check('predictive dim nudged up', $new['company_size'] > 20, json_encode($new));
 check('vector sums to exactly 100', array_sum($new) === 100, json_encode($new));
 check('all ints', array_reduce($new, fn($c, $w) => $c && is_int($w), true));
-check('zero-variance dims not increased', $new['tech_stack'] <= 17);
+check('zero-variance dims not increased', $new['geography'] <= 20);
 
 $new = A::proposeWeights($W, [], ['company_size' => 1.0]);
 check(
     'nudge clamped to max +5 net',
-    $new['company_size'] - 17 <= 5 && array_sum($new) === 100,
+    $new['company_size'] - 20 <= 5 && array_sum($new) === 100,
     json_encode($new)
 );
 
@@ -97,20 +97,20 @@ check('null correlation -> unchanged', $new === $W);
 $new = A::proposeWeights($W, [], ['company_size' => -1.0]);
 check(
     'negative correlation nudges down, sum still 100',
-    $new['company_size'] < 17 && array_sum($new) === 100,
+    $new['company_size'] < 20 && array_sum($new) === 100,
     json_encode($new)
 );
 
-$new = A::proposeWeights($W, ['tech_stack'], ['tech_stack' => 1.0, 'company_size' => 0.6]);
-check('buyer_locked dim NEVER touched', $new['tech_stack'] === 17, json_encode($new));
+$new = A::proposeWeights($W, ['target_title'], ['target_title' => 1.0, 'company_size' => 0.6]);
+check('buyer_locked dim NEVER touched', $new['target_title'] === 20, json_encode($new));
 check('locked sum keeps vector at 100', array_sum($new) === 100);
 
 $new = A::proposeWeights($W, array_keys($W), ['company_size' => 1.0]);
 check('all locked -> vector unchanged', $new === $W);
 
 $new = A::proposeWeights(
-    ['company_size' => 0, 'industry_fit' => 0, 'tech_stack' => 0,
-     'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0],
+    ['company_size' => 0, 'industry_fit' => 0, 'target_title' => 0,
+     'geography' => 0, 'trigger_signals' => 0],
     [],
     ['company_size' => -1.0]
 );

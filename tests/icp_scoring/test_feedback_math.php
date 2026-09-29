@@ -36,8 +36,8 @@ use App\Jev\DecisionTier;
 ics_assert_default_mode_off('(start)');
 
 $DIMS = IcpProfile::DIMENSIONS;
-$W = ['company_size' => 17, 'industry_fit' => 17, 'tech_stack' => 17,
-      'target_title' => 17, 'geography' => 16, 'trigger_signals' => 16];
+$W = ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+      'geography' => 20, 'trigger_signals' => 20];
 
 // --- A. nudge boundaries --------------------------------------------------------
 echo "A. noise floor, clamp, largest-remainder:\n";
@@ -51,37 +51,37 @@ check('|r| = 0.05 (at floor): vector sums to 100 as ints',
     array_sum($nf) === 100
     && array_reduce($nf, fn($c, $w) => $c && is_int($w), true));
 
-// Engineered: weights [35,33,32,0,0,0], r=+1.0 -> raw [40,33,32] total 105,
+// Engineered: weights [35,33,32,0,0], r=+1.0 -> raw [40,33,32] total 105,
 // scaled [38.095, 31.429, 30.476] -> floors [38,31,30]=99, the +1 goes to
-// tech_stack (largest fractional remainder .476).
-$we = ['company_size' => 35, 'industry_fit' => 33, 'tech_stack' => 32,
-       'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0];
+// target_title (largest fractional remainder .476).
+$we = ['company_size' => 35, 'industry_fit' => 33, 'target_title' => 32,
+       'geography' => 0, 'trigger_signals' => 0];
 $new = A::proposeWeights($we, [], ['company_size' => 1.0]);
-check('largest-remainder: +5 nudge apportions to [38,31,31,0,0,0]',
-    $new === ['company_size' => 38, 'industry_fit' => 31, 'tech_stack' => 31,
-              'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0],
+check('largest-remainder: +5 nudge apportions to [38,31,31,0,0]',
+    $new === ['company_size' => 38, 'industry_fit' => 31, 'target_title' => 31,
+              'geography' => 0, 'trigger_signals' => 0],
     json_encode($new));
 
 // Engineered negative clamp: r=-1.0 -> raw [30,33,32] total 95,
 // scaled [31.579, 34.737, 33.684] -> floors [31,34,33]=98, +1 to the two
-// largest remainders (industry_fit .737, tech_stack .684).
+// largest remainders (industry_fit .737, target_title .684).
 $new = A::proposeWeights($we, [], ['company_size' => -1.0]);
-check('negative clamp: exact vector [31,35,34,0,0,0], sum 100',
-    $new === ['company_size' => 31, 'industry_fit' => 35, 'tech_stack' => 34,
-              'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0]
+check('negative clamp: exact vector [31,35,34,0,0], sum 100',
+    $new === ['company_size' => 31, 'industry_fit' => 35, 'target_title' => 34,
+              'geography' => 0, 'trigger_signals' => 0]
     && array_sum($new) === 100,
     json_encode($new));
 
 // Locked dims kept EXACTLY; unlocked renormalize to (100 - locked).
-// Locked tech_stack=17 -> target 83. corr cs=+1.0: raw [40,33] over
+// Locked target_title=17 -> target 83. corr cs=+1.0: raw [40,33] over
 // unlocked {cs,it} -> scaled [45.479, 37.521] -> floors 82, +1 to
 // industry_fit (.521 > .479).
-$wl = ['company_size' => 35, 'industry_fit' => 33, 'tech_stack' => 17,
-       'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0];
-$new = A::proposeWeights($wl, ['tech_stack'], ['company_size' => 1.0]);
+$wl = ['company_size' => 35, 'industry_fit' => 33, 'target_title' => 17,
+       'geography' => 0, 'trigger_signals' => 0];
+$new = A::proposeWeights($wl, ['target_title'], ['company_size' => 1.0]);
 check('locked dim kept EXACTLY, unlocked renormalize to 100-locked',
-    $new === ['company_size' => 45, 'industry_fit' => 38, 'tech_stack' => 17,
-              'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0]
+    $new === ['company_size' => 45, 'industry_fit' => 38, 'target_title' => 17,
+              'geography' => 0, 'trigger_signals' => 0]
     && array_sum($new) === 100,
     json_encode($new));
 
@@ -186,7 +186,7 @@ function ics_scores_script(): array
                   7 => 1, 8 => 1, 9 => 1, 10 => 1, 11 => 5, 12 => 9];
     foreach ($sizeScore as $lid => $s) {
         $rows[] = ics_notes_row($lid, [
-            'company_size' => $s, 'industry_fit' => 5, 'tech_stack' => 5,
+            'company_size' => $s, 'industry_fit' => 5,
             'target_title' => 5, 'geography' => 5, 'trigger_signals' => 5,
         ]);
     }
@@ -206,16 +206,16 @@ check('run(): sample_size=12, engaged_leads=12',
     $res['sample_size'] === 12 && $res['engaged_leads'] === 12);
 check('run(): predictive dim nudged up, vector sums to 100 as ints',
     $action->written !== null
-    && $action->written['company_size'] > 17
+    && $action->written['company_size'] > 20
     && array_sum($action->written) === 100
-    && count($action->written) === 6);
+    && count($action->written) === 5);
 check("run(): write captured as auto_tuner with sample size",
     $action->writtenBy === 'auto_tuner' && $action->writtenSample === 12
     && str_contains((string)$action->writtenReason, 'engagement feedback'));
 check('run(): correlation(company_size) strongly positive, zero-variance dim null',
     ($res['correlations']['company_size'] ?? 0) > 0.5
-    && array_key_exists('tech_stack', $res['correlations'])
-    && $res['correlations']['tech_stack'] === null,
+    && array_key_exists('geography', $res['correlations'])
+    && $res['correlations']['geography'] === null,
     json_encode($res['correlations']));
 
 // B2. sample floor: 9 engaged leads -> skipped, nothing written.
@@ -256,12 +256,13 @@ check('run(): internal failure -> status error, never throws',
     !$threw && ($res4['status'] ?? '') === 'error');
 
 // C1. resetToDefaults: locked dim keeps its weight, unlocked renormalize.
-// locked geography=5 -> target 95; defaults [17,17,17,17,16] over 5 unlocked
-// scale to 95 -> floors [19,19,19,19,18]=94, +1 to one 17-base dim.
+// locked geography=5 -> target 95; defaults [20,20,20,20] over the 4 unlocked
+// dims -> scaled [23.75 x4]; floors [23,23,23,23]=92, +3 to the first three in
+// stable order (all remainders tie at .75).
 $action5 = new IcsAdjust($pdo);
 $action5->dims = IcsAdjust::dimsFor(
-    ['company_size' => 30, 'industry_fit' => 30, 'tech_stack' => 30,
-     'target_title' => 3, 'geography' => 5, 'trigger_signals' => 2],
+    ['company_size' => 30, 'industry_fit' => 30, 'target_title' => 3,
+     'geography' => 5, 'trigger_signals' => 2],
     ['geography']
 );
 $res5 = $action5->resetToDefaults();
@@ -276,7 +277,7 @@ foreach (($action5->written ?? []) as $dim => $w) {
 }
 sort($unlockedVals);
 check('resetToDefaults(): unlocked renormalize to default shape scaled to 95',
-    $unlockedVals === [18, 19, 19, 19, 20] && array_sum($action5->written ?? []) === 100,
+    $unlockedVals === [23, 24, 24, 24] && array_sum($action5->written ?? []) === 100,
     json_encode($action5->written));
 check("resetToDefaults(): recorded as 'user' with reset reason",
     $action5->writtenBy === 'user' && str_contains((string)$action5->writtenReason, 'reset'));

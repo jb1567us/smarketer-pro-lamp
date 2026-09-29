@@ -137,12 +137,11 @@ class AdjustIcpWeightsAction implements ActionInterface
      * default profile in migrations/2026-09-28-icp-scoring.sql.
      */
     public const DEFAULT_WEIGHTS = [
-        'company_size'    => 17,
-        'industry_fit'    => 17,
-        'tech_stack'      => 17,
-        'target_title'    => 17,
-        'geography'       => 16,
-        'trigger_signals' => 16,
+        'company_size'    => 20,
+        'industry_fit'    => 20,
+        'target_title'    => 20,
+        'geography'       => 20,
+        'trigger_signals' => 20,
     ];
 
     public function __construct(
@@ -680,7 +679,7 @@ class AdjustIcpWeightsAction implements ActionInterface
                 return 0.0;
 
             default:
-                // company_size, industry_fit, tech_stack, trigger_signals:
+                // company_size, industry_fit, trigger_signals:
                 // no lead column carries this evidence in the current schema.
                 return 0.5;
         }

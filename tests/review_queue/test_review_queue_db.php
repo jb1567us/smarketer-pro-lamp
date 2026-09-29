@@ -105,7 +105,7 @@ try {
 
     // --- Seed ----------------------------------------------------------------
     $marker = "\n\n[Qualification 2026-09-28]: Needs Review (fit 62/100, below qualify threshold 75) — Jev weighted ICP fit.\n"
-        . "Dimensions: company_size=8/10, industry_fit=7/10, tech_stack=6/10, target_title=5/10, geography=7/10, trigger_signals=4/10.";
+        . "Dimensions: company_size=8/10, industry_fit=7/10, target_title=5/10, geography=7/10, trigger_signals=4/10.";
     $seed = $pdo->prepare('INSERT INTO leads (company_name, contact_name, email, status, lead_score, notes) VALUES (?, ?, ?, ?, ?, ?)');
     $seed->execute(['Acme Corp', 'Jane Doe', 'jane@acme.test', 'Needs Review', 62, 'Enrichment research: 200 employees, SaaS.' . $marker]);
     $leadA = (int)$pdo->lastInsertId();
@@ -135,7 +135,7 @@ try {
     ok((int)$list['rows'][0]['id'] === $leadA, 'highest fit score first');
     ok(
         ($list['rows'][0]['dimensions']['company_size'] ?? null) === 8
-        && count($list['rows'][0]['dimensions']) === 6,
+        && count($list['rows'][0]['dimensions']) === 5,
         'per-dimension scores parsed from notes marker',
         json_encode($list['rows'][0]['dimensions'])
     );

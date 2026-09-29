@@ -110,7 +110,7 @@ $sentInstr = (string)(QualifyFakeJev::$lastCall['questions']['qualified']['instr
 check('provider receives the enumerated must-haves',
     stripos($sentInstr, 'Company size') !== false
     && stripos($sentInstr, 'Industry') !== false
-    && stripos($sentInstr, 'Tech stack') !== false);
+    && stripos($sentInstr, 'Tech stack') === false);
 check('provider receives no thin-evidence false-default',
     stripos($sentInstr, 'answer false when evidence is thin') === false);
 

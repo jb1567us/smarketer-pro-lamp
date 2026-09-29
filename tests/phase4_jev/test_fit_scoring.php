@@ -5,7 +5,7 @@
  *
  * Covers ScoreLeadFitAction + the QualifyLeadAction rewrite that consumes it.
  * Zero network, zero DB:
- *   1. buildFitQuestions: six batched score questions, 1-10 criteria, each
+ *   1. buildFitQuestions: five batched score questions, 1-10 criteria, each
  *      referencing its dimension's target_config.
  *   2. Hard veto (industry/company/domain/title/keyword): fit 0, no Jev call.
  *   3. normalizeJevAnswers: 1-10 -> 0-100 per dimension, weighted fit,
@@ -97,17 +97,15 @@ function fitProfile(array $overrides = []): array
 {
     $dims = [];
     foreach (IcpProfile::DIMENSIONS as $d) {
-        $dims[$d] = ['weight' => 17, 'buyer_locked' => false, 'target_config' => []];
+        $dims[$d] = ['weight' => 20, 'buyer_locked' => false, 'target_config' => []];
     }
-    $dims['geography']['weight'] = 16;
-    $dims['trigger_signals']['weight'] = 16;
     $base = [
         'id' => 1,
         'key' => 'Test ICP',
         'dimensions' => $dims,
         'weights' => [
-            'company_size' => 17, 'industry_fit' => 17, 'tech_stack' => 17,
-            'target_title' => 17, 'geography' => 16, 'trigger_signals' => 16,
+            'company_size' => 20, 'industry_fit' => 20,
+            'target_title' => 20, 'geography' => 20, 'trigger_signals' => 20,
         ],
         'exclusions' => [],
         'thresholds' => ['qualify' => 75, 'review' => 50],
@@ -174,7 +172,7 @@ ScoreLeadFitAction::$profileOverride = $prof;
 
 // --- 1. Question building ----------------------------------------------------
 $qs = ScoreLeadFitAction::buildFitQuestions($prof['dimensions']);
-check('buildFitQuestions emits six batched questions', count($qs) === 6);
+check('buildFitQuestions emits five batched questions', count($qs) === 5);
 $keysOk = true;
 foreach (IcpProfile::DIMENSIONS as $d) {
     $q = $qs['dim_' . $d] ?? null;
@@ -186,8 +184,8 @@ check('each dimension gets a 10-level score question', $keysOk);
 check('criteria run 1 (worst) to 10 (best)',
     str_starts_with((string)($qs['dim_company_size']['criteria'][0] ?? ''), '1 —')
     && str_starts_with((string)($qs['dim_company_size']['criteria'][9] ?? ''), '10 —'));
-check('instructions forbid guessing on thin evidence',
-    stripos((string)($qs['dim_company_size']['instructions'] ?? ''), 'never guess') !== false);
+check('instructions forbid inventing evidence on thin evidence',
+    stripos((string)($qs['dim_company_size']['instructions'] ?? ''), 'never invent evidence') !== false);
 
 $profTargets = fitProfile();
 $profTargets['dimensions']['target_title']['target_config'] = ['titles' => ['VP Sales', 'CMO']];
@@ -254,15 +252,15 @@ check('math: position 4.5 -> 6/10 display, 50.0 pct',
     $n['dimensions']['company_size'] === 6 && $n['dimension_pcts']['company_size'] === 50.0);
 
 $mixed = [
-    'company_size' => 9.0, 'industry_fit' => 9.0, 'tech_stack' => 0.0,
+    'company_size' => 9.0, 'industry_fit' => 9.0,
     'target_title' => 9.0, 'geography' => 0.0, 'trigger_signals' => 0.0,
 ];
 $n = ScoreLeadFitAction::normalizeJevAnswers(dimAnswers($mixed), $weights, $thresholds);
-// (100*17 + 100*17 + 0*17 + 100*17 + 0*16 + 0*16) / 100 = 51
-check('math: weighted fit applies profile weights (51, needs_review)',
-    $n['fit_score'] === 51 && $n['verdict'] === 'needs_review');
+// (100*20 + 100*20 + 100*20 + 0*20 + 0*20) / 100 = 60
+check('math: weighted fit applies profile weights (60, needs_review)',
+    $n['fit_score'] === 60 && $n['verdict'] === 'needs_review');
 check('math: position 0 clamps to 1/10 and 0.0 pct',
-    $n['dimensions']['tech_stack'] === 1 && $n['dimension_pcts']['tech_stack'] === 0.0);
+    $n['dimensions']['geography'] === 1 && $n['dimension_pcts']['geography'] === 0.0);
 
 $all0 = array_fill_keys(IcpProfile::DIMENSIONS, 0.0);
 $n = ScoreLeadFitAction::normalizeJevAnswers(dimAnswers($all0), $weights, $thresholds);
@@ -326,7 +324,7 @@ check('shadow: jev_value carries weighted fit + per-dimension pcts',
     $rec !== null
     && ($rec['jev_value']['fit_score'] ?? null) == 100
     && ($rec['jev_value']['verdict'] ?? '') === 'qualified'
-    && count($rec['jev_value']['dimensions'] ?? []) === 6
+    && count($rec['jev_value']['dimensions'] ?? []) === 5
     && ($rec['jev_value']['dimensions']['company_size'] ?? null) == 100.0);
 check('shadow: agreement computed (fit 100 vs legacy 95 -> agree)',
     $rec !== null && ($rec['agree'] ?? null) === true);

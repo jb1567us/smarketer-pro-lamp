@@ -123,17 +123,15 @@ function ics_profile(array $overrides = []): array
 {
     $dims = [];
     foreach (\App\Icp\IcpProfile::DIMENSIONS as $d) {
-        $dims[$d] = ['weight' => 17, 'buyer_locked' => false, 'target_config' => []];
+        $dims[$d] = ['weight' => 20, 'buyer_locked' => false, 'target_config' => []];
     }
-    $dims['geography']['weight'] = 16;
-    $dims['trigger_signals']['weight'] = 16;
     $base = [
         'id' => 1,
         'key' => 'Test ICP',
         'dimensions' => $dims,
         'weights' => [
-            'company_size' => 17, 'industry_fit' => 17, 'tech_stack' => 17,
-            'target_title' => 17, 'geography' => 16, 'trigger_signals' => 16,
+            'company_size' => 20, 'industry_fit' => 20,
+            'target_title' => 20, 'geography' => 20, 'trigger_signals' => 20,
         ],
         'exclusions' => [],
         'thresholds' => ['qualify' => 75, 'review' => 50],

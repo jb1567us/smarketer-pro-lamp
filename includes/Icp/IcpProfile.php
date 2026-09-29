@@ -23,7 +23,6 @@ class IcpProfile
     public const DIMENSIONS = [
         'company_size',
         'industry_fit',
-        'tech_stack',
         'target_title',
         'geography',
         'trigger_signals',
@@ -32,7 +31,6 @@ class IcpProfile
     public const DIMENSION_LABELS = [
         'company_size'    => 'Company size',
         'industry_fit'    => 'Industry fit',
-        'tech_stack'      => 'Tech stack',
         'target_title'    => 'Target title',
         'geography'       => 'Geography',
         'trigger_signals' => 'Trigger signals',

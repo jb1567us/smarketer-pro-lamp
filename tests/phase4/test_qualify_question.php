@@ -4,6 +4,9 @@
 // noul question enumerates the app's real ICP must-haves, applies a
 // preponderance standard (noul >= 0.5), and no longer defaults thin
 // evidence to false.
+//
+// 2026-09-29: tech stack was removed from ICP fit scoring entirely, so the
+// must-haves are now company size + industry only.
 require_once __DIR__ . '/common.php';
 require_once phase4_repo_root() . '/includes/autoload.php';
 
@@ -15,13 +18,14 @@ $questions = $built['questions'];
 $instr = (string)($questions['qualified']['instructions'] ?? '');
 
 // --- 1. The ICP must-haves come from the app's real ICP definition --------
-// 'Chat Qualifier' prompt (includes/Prompts/PromptRegistry.php): size,
-// industry, tech stack. Nothing invented beyond that.
+// 'Chat Qualifier' prompt (includes/Prompts/PromptRegistry.php): size and
+// industry. Tech stack was removed from ICP fit scoring on 2026-09-29 —
+// nothing invented beyond the remaining two.
 $mustHaves = QualifyLeadAction::icpMustHaves();
-check('icpMustHaves() returns exactly 3 criteria', count($mustHaves) === 3);
+check('icpMustHaves() returns exactly 2 criteria', count($mustHaves) === 2);
 check('must-haves include company size', (bool)array_filter($mustHaves, fn($m) => stripos($m, 'size') !== false));
 check('must-haves include industry', (bool)array_filter($mustHaves, fn($m) => stripos($m, 'industry') !== false));
-check('must-haves include tech stack', (bool)array_filter($mustHaves, fn($m) => stripos($m, 'tech stack') !== false));
+check('must-haves exclude tech stack', !(bool)array_filter($mustHaves, fn($m) => stripos($m, 'tech stack') !== false));
 
 // --- 2. The rewritten question enumerates them explicitly ------------------
 foreach ($mustHaves as $i => $mh) {

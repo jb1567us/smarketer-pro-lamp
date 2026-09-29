@@ -8,7 +8,7 @@
  * (logs/jev_shadow.jsonl) via the shadowExtract()/shadowAgree() factories.
  * Zero network, zero DB:
  *   1. shadowExtract() units: Jev answers -> {verdict, fit_score,
- *      dimensions (six pcts), source 'jev'}; legacy shapes -> verdict
+ *      dimensions (five pcts), source 'jev'}; legacy shapes -> verdict
  *      derived from qualified, fit_score from score, source from the
  *      legacy 'source' field; malformed Jev answers (missing a dimension)
  *      fall back to the legacy branch.
@@ -45,9 +45,9 @@ echo "1. shadowExtract():\n";
 $extract = ScoreLeadFitAction::shadowExtract($weights, $TH);
 
 $jv = $extract(ics_dim_answers($all9));
-check('jev answers -> verdict qualified, fit 100, six pcts, source jev',
+check('jev answers -> verdict qualified, fit 100, five pcts, source jev',
     $jv['verdict'] === 'qualified' && $jv['fit_score'] === 100
-    && count($jv['dimensions']) === 6
+    && count($jv['dimensions']) === 5
     && $jv['dimensions']['company_size'] === 100.0
     && $jv['source'] === 'jev');
 
@@ -66,7 +66,7 @@ check("legacy unqualified -> verdict 'unqualified'",
 
 // Malformed Jev answers (one dimension missing) take the legacy branch.
 $broken = ics_dim_answers($all9);
-unset($broken['dim_tech_stack']);
+unset($broken['dim_trigger_signals']);
 $broken['qualified'] = true;
 $broken['score'] = 70;
 $broken['source'] = 'llm';
@@ -132,11 +132,11 @@ foreach ((array)@file($shadowLog) as $line) {
     }
 }
 check('shadow: exactly one JSONL record for lead_fit.score_fit', $rec !== null);
-check('shadow: jev_value carries fit_score, verdict, six pcts, source jev',
+check('shadow: jev_value carries fit_score, verdict, five pcts, source jev',
     $rec !== null
     && ($rec['jev_value']['fit_score'] ?? null) === 100
     && ($rec['jev_value']['verdict'] ?? '') === 'qualified'
-    && count($rec['jev_value']['dimensions'] ?? []) === 6
+    && count($rec['jev_value']['dimensions'] ?? []) === 5
     && ($rec['jev_value']['dimensions']['trigger_signals'] ?? null) == 100
     && ($rec['jev_value']['source'] ?? '') === 'jev');
 check('shadow: llm_value carries legacy verdict + score',

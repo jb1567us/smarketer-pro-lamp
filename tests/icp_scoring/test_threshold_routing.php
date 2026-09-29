@@ -42,7 +42,7 @@ $TH = ['qualify' => 75, 'review' => 50];
 
 // --- 1. boundary routing --------------------------------------------------------
 echo "1. boundary routing (single-dimension weights for exact fits):\n";
-$wSingle = ['company_size' => 100, 'industry_fit' => 0, 'tech_stack' => 0,
+$wSingle = ['company_size' => 100, 'industry_fit' => 0,
             'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0];
 // position -> pct: 6.75 -> 75.0, 6.66 -> 74.0, 4.5 -> 50.0, 4.41 -> 49.0
 $cases = [
@@ -166,14 +166,14 @@ try {
     check('review=0 stays 0', IcpProfile::thresholds() === ['qualify' => 75, 'review' => 0]);
 
     echo "5. updateWeights() sum-to-100 + audit + buyer lock:\n";
-    $good = ['company_size' => 20, 'industry_fit' => 20, 'tech_stack' => 20,
+    $good = ['company_size' => 30, 'industry_fit' => 30,
              'target_title' => 20, 'geography' => 10, 'trigger_signals' => 10];
     IcpProfile::updateWeights(1, $good, 'test edit', 42, true, 'user');
     check('weights persisted', IcpProfile::weights(1) === $good);
     $hist = $pdo->query("SELECT dimension_key, old_weight, new_weight, reason, sample_size, created_by
                          FROM icp_weight_history ORDER BY id")->fetchAll(\App\PDO::FETCH_ASSOC);
-    check('one history row per CHANGED dimension (6)',
-        count($hist) === 6, 'got ' . count($hist));
+    check('one history row per CHANGED dimension (4)',
+        count($hist) === 4, 'got ' . count($hist));
     $allUser = true;
     $allSized = true;
     foreach ($hist as $h) {
@@ -185,7 +185,7 @@ try {
     $locks = $pdo->query("SELECT dimension_key, buyer_locked FROM icp_dimensions WHERE profile_id = 1")
         ->fetchAll(\App\PDO::FETCH_KEY_PAIR);
     check('manual edit marks touched dimensions buyer_locked',
-        count(array_filter($locks)) === 6);
+        count(array_filter($locks)) === 5);
 
     $histCount = count($hist);
     IcpProfile::updateWeights(1, $good, 'no-op edit', null, true, 'user');

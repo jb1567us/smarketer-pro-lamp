@@ -121,6 +121,42 @@ try {
     $seedWeights = \App\Icp\IcpProfile::weights(1);
     ok(array_sum($seedWeights) === 100, 'seeded weights sum to 100: ' . json_encode($seedWeights));
 
+    // --- F0. tech_stack retirement migration ----------------------------------
+    // Simulates the pre-removal world (six dimensions, buyer-locked
+    // tech_stack row) and applies migrations/2026-09-29-icp-default-weights.sql
+    // for real: the locked row must go too, the audit trail must record it,
+    // and the remaining five unlocked dims must land on 20/20/20/20/20.
+    echo "F0. tech_stack retirement migration:\n";
+    $pdo->exec("UPDATE icp_dimensions SET weight = 17, buyer_locked = 0 WHERE profile_id = 1");
+    $pdo->exec("INSERT INTO icp_dimensions (profile_id, dimension_key, weight, buyer_locked, target_config)
+                VALUES (1, 'tech_stack', 17, 1, '{\"tools\":[]}')");
+    $migFile = $repo . '/migrations/2026-09-29-icp-default-weights.sql';
+    $sh("mysql -u root icp_test < " . escapeshellarg($migFile));
+    $techLeft = (int)$pdo->query(
+        "SELECT COUNT(*) FROM icp_dimensions WHERE dimension_key = 'tech_stack'"
+    )->fetchColumn();
+    ok($techLeft === 0, 'locked tech_stack row retired by the migration');
+    $audit = $pdo->query(
+        "SELECT old_weight, new_weight, created_by FROM icp_weight_history
+         WHERE dimension_key = 'tech_stack' ORDER BY id DESC LIMIT 1"
+    )->fetch(\App\PDO::FETCH_ASSOC);
+    ok(
+        $audit !== false && (int)$audit['old_weight'] === 17
+        && (int)$audit['new_weight'] === 0 && $audit['created_by'] === 'user',
+        'retirement audit row recorded (17 -> 0, user)'
+    );
+    $postW = \App\Icp\IcpProfile::weights(1);
+    $even20 = ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+               'geography' => 20, 'trigger_signals' => 20];
+    ok($postW == $even20, 'remaining five dims evened to 20/20/20/20/20: ' . json_encode($postW));
+    // Idempotent: a second apply changes nothing and writes no duplicate audit.
+    $sh("mysql -u root icp_test < " . escapeshellarg($migFile));
+    $auditCount = (int)$pdo->query(
+        "SELECT COUNT(*) FROM icp_weight_history WHERE dimension_key = 'tech_stack'"
+    )->fetchColumn();
+    ok($auditCount === 1, 'migration idempotent: no duplicate audit row');
+    ok(\App\Icp\IcpProfile::weights(1) == $even20, 'migration idempotent: weights unchanged');
+
     // --- Seed: 12 scored leads --------------------------------------------
     // company_size score correlates with engagement (9/10 -> positive reply,
     // 1/10 -> unsubscribe); every other dimension is constant (zero variance).
@@ -137,7 +173,7 @@ try {
         $s = $sizeScore[$lid];
         $notesStmt->execute([
             "\n\n[Qualification 2026-09-28]: Qualified (fit 70/100, ICP \"Default ICP\") — test seed\n" .
-            "Dimensions: company_size={$s}/10, industry_fit=5/10, tech_stack=5/10, " .
+            "Dimensions: company_size={$s}/10, industry_fit=5/10, " .
             "target_title=5/10, geography=5/10, trigger_signals=5/10.",
             $lid,
         ]);
@@ -170,12 +206,12 @@ try {
     ok($res['sample_size'] === 12, 'sample_size=12, got ' . $res['sample_size']);
     ok($res['engaged_leads'] === 12, 'engaged_leads=12, got ' . $res['engaged_leads']);
     $newW = \App\Icp\IcpProfile::weights(1);
-    ok($newW['company_size'] > 17, 'predictive dim nudged up: ' . json_encode($newW));
+    ok($newW['company_size'] > 20, 'predictive dim nudged up: ' . json_encode($newW));
     ok(array_sum($newW) === 100, 'weights still sum to 100');
-    ok($newW['company_size'] - 17 <= 5, 'nudge within +/-5 per run');
+    ok($newW['company_size'] - 20 <= 5, 'nudge within +/-5 per run');
     $hist = $pdo->query(
         "SELECT dimension_key, old_weight, new_weight, reason, sample_size, created_by
-         FROM icp_weight_history ORDER BY id"
+         FROM icp_weight_history WHERE created_by = 'auto_tuner' ORDER BY id"
     )->fetchAll(\App\PDO::FETCH_ASSOC);
     ok(count($hist) > 0, 'history rows recorded');
     $sizeRow = null;
@@ -188,7 +224,7 @@ try {
         ok(str_contains((string)$h['reason'], 'engagement feedback'), 'history reason recorded');
     }
     ok(
-        $sizeRow !== null && (int)$sizeRow['old_weight'] === 17 && (int)$sizeRow['new_weight'] === $newW['company_size'],
+        $sizeRow !== null && (int)$sizeRow['old_weight'] === 20 && (int)$sizeRow['new_weight'] === $newW['company_size'],
         'history row reversible (old/new weights)'
     );
 
@@ -285,7 +321,7 @@ try {
     ok($fw['geography'] > $before['geography'], 'geography nudged up from field evidence: ' . json_encode($fw));
     ok(array_sum($fw) === 100, 'fallback weights sum to 100');
     ok(
-        $res['correlations']['tech_stack'] === null,
+        $res['correlations']['trigger_signals'] === null,
         'no-evidence dim has null correlation (no churn)'
     );
 

@@ -97,7 +97,7 @@ try {
     $sh("{$mysql} < " . escapeshellarg($repo . '/migrations/2026-09-28-review-decisions.sql'));
 
     $marker = "\n\n[Qualification 2026-09-28]: Needs Review (fit 62/100, below qualify threshold 75) — Jev weighted ICP fit.\n"
-        . "Dimensions: company_size=8/10, industry_fit=7/10, tech_stack=6/10, target_title=5/10, geography=7/10, trigger_signals=4/10.";
+        . "Dimensions: company_size=8/10, industry_fit=7/10, target_title=5/10, geography=7/10, trigger_signals=4/10.";
     $seed = $pdo->prepare('INSERT INTO leads (company_name, contact_name, email, status, lead_score, notes) VALUES (?, ?, ?, ?, ?, ?)');
     $seed->execute(['Acme Corp', 'Jane Doe', 'jane@acme.test', 'Needs Review', 62, 'enrichment' . $marker]);
     $leadId = (int)$pdo->lastInsertId();

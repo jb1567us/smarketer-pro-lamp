@@ -87,12 +87,12 @@ rq_check('unknown decision throws OutreachException', $threw);
 // --- 3. parseDimensionScores -------------------------------------------------
 echo "3. parseDimensionScores:\n";
 $marker = "\n\n[Qualification 2026-09-28]: Needs Review (fit 62/100, below qualify threshold 75) — Jev weighted ICP fit 62/100.\n"
-    . "Dimensions: company_size=8/10, industry_fit=7/10, tech_stack=6/10, target_title=5/10, geography=7/10, trigger_signals=4/10.";
+    . "Dimensions: company_size=8/10, industry_fit=7/10, target_title=5/10, geography=7/10, trigger_signals=4/10.";
 $scores = ReviewQueue::parseDimensionScores('Some enrichment notes here.' . $marker);
 rq_check(
-    'parses all six dimensions',
+    'parses all five dimensions',
     $scores === [
-        'company_size' => 8, 'industry_fit' => 7, 'tech_stack' => 6,
+        'company_size' => 8, 'industry_fit' => 7,
         'target_title' => 5, 'geography' => 7, 'trigger_signals' => 4,
     ],
     json_encode($scores)
@@ -106,7 +106,7 @@ rq_check(
 
 // Latest marker wins.
 $twoMarkers = $marker . "\n\n[Qualification 2026-09-29]: Qualified (fit 81/100) — re-scored.\n"
-    . "Dimensions: company_size=9/10, industry_fit=9/10, tech_stack=9/10, target_title=8/10, geography=8/10, trigger_signals=8/10.";
+    . "Dimensions: company_size=9/10, industry_fit=9/10, target_title=8/10, geography=8/10, trigger_signals=8/10.";
 $latest = ReviewQueue::parseDimensionScores($twoMarkers);
 rq_check('latest marker wins', ($latest['company_size'] ?? null) === 9, json_encode($latest));
 

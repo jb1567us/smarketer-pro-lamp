@@ -25,7 +25,6 @@ const ICP_KNOWN_SIGNALS = ['funding', 'hiring', 'leadership_change', 'product_la
 const ICP_TARGET_SPEC = [
     'company_size'    => ['min_employees' => 'int_or_null', 'max_employees' => 'int_or_null'],
     'industry_fit'    => ['include' => 'string_list', 'exclude' => 'string_list'],
-    'tech_stack'      => ['keywords' => 'string_list'],
     'target_title'    => ['titles' => 'string_list'],
     'geography'       => ['countries' => 'string_list', 'regions' => 'string_list'],
     'trigger_signals' => ['signals' => 'signal_list'],

@@ -69,7 +69,7 @@ function nr_fixture_notes(array $def): string
         'reason' => 'Fixture: synthesized qualification verdict.',
         'source' => 'weighted',
         'thresholds' => ['qualify' => 75, 'review' => 50],
-        'dimensions' => ['company_size' => 8, 'industry_fit' => 7, 'tech_stack' => 6],
+        'dimensions' => ['company_size' => 8, 'industry_fit' => 7, 'target_title' => 6],
     ];
     $status = $def['status'];
     return QualifyLeadAction::notesMarker($result, $status);

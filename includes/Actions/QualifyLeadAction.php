@@ -140,7 +140,9 @@ class QualifyLeadAction extends AbstractAction
      *
      * Sourced from the 'Chat Qualifier' prompt in includes/Prompts/PromptRegistry.php —
      * the only place in the codebase that spells out what the ICP consists of:
-     * size, industry, and tech stack. The 'Qualifier' / 'B2B ICP Specialist'
+     * size and industry. (Tech stack was removed from ICP fit scoring entirely
+     * on 2026-09-29; it survives only as lead-enrichment data, never as a
+     * scoring criterion.) The 'Qualifier' / 'B2B ICP Specialist'
      * prompt references "the Ideal Customer Profile (ICP)" but never enumerates it.
      *
      * Deliberately minimal: the 2026-09-28 live-shadow re-measurement (GATE: HOLD)
@@ -162,7 +164,6 @@ class QualifyLeadAction extends AbstractAction
         return [
             'Company size: the company falls in the size range we sell to.',
             'Industry: the company operates in an industry we target.',
-            'Tech stack: the company\'s technology is compatible with or adjacent to what we support.',
         ];
     }
 
@@ -193,11 +194,11 @@ class QualifyLeadAction extends AbstractAction
         // Ordered fit levels for the score question (level 0 = worst .. level 4 = best).
         // The API returns a position on these levels; scoreToPercent() maps it to 0-100.
         $fitLevels = [
-            'No fit: none of the ICP must-haves (company size, industry, tech stack) are evidenced in the lead context.',
+            'No fit: none of the ICP must-haves (company size, industry) are evidenced in the lead context.',
             'Weak fit: a single must-have is evidenced; major gaps or deal-breakers present.',
             'Partial fit: several must-haves evidenced, but key gaps remain.',
             'Strong fit: most must-haves evidenced; minor gaps only.',
-            'Exceptional fit: all three ICP must-haves strongly evidenced, no deal-breakers.',
+            'Exceptional fit: both ICP must-haves strongly evidenced, no deal-breakers.',
         ];
         $questions = [
             'qualified' => JevProvider::noulQuestion(

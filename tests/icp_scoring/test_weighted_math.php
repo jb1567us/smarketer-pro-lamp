@@ -11,7 +11,9 @@
  *   3. Normalization uses the ACTUAL weight sum as the denominator (not a
  *      hard-coded 100): weights summing to 60 or 30 still rescale correctly.
  *   4. Degenerate inputs: all-zero weights (no division error, fit 0),
- *      missing weight for a dimension (contributes 0, still scored 1-10).
+ *      missing weight for a dimension (contributes 0, still scored 1-10),
+ *      stray weight key for a retired dimension (ignored — it must never
+ *      inflate the denominator and dilute scores).
  *   5. 1-10 display conversion, position clamping, confidence = min.
  *   6. Empty-target fallback prose: every dimension's question carries a
  *      documented default target when the buyer has not configured one.
@@ -45,8 +47,8 @@ check('position 6.705 -> 74.5', JevProvider::scoreToPercent(6.705, 10) === 74.5)
 // --- 2. exact weighted arithmetic --------------------------------------------
 echo "2. weighted fit arithmetic:\n";
 $w = [
-    'company_size' => 40, 'industry_fit' => 20, 'tech_stack' => 10,
-    'target_title' => 10, 'geography' => 10, 'trigger_signals' => 10,
+    'company_size' => 40, 'industry_fit' => 20,
+    'target_title' => 10, 'geography' => 10, 'trigger_signals' => 20,
 ]; // sums to 100
 $n = ScoreLeadFitAction::normalizeJevAnswers(
     ics_dim_answers(['company_size' => 9.0]), $w, $TH);
@@ -65,7 +67,7 @@ $n = ScoreLeadFitAction::normalizeJevAnswers(ics_dim_answers(array_fill_keys($DI
 check('sum-60 weights: all-9 fit = 100 (rescaled, not 60)',
     $n['fit_score'] === 100, json_encode($n['fit_score']));
 
-$w30 = ['company_size' => 30, 'industry_fit' => 0, 'tech_stack' => 0,
+$w30 = ['company_size' => 30, 'industry_fit' => 0,
         'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0]; // sums to 30
 $n = ScoreLeadFitAction::normalizeJevAnswers(ics_dim_answers(['company_size' => 4.5]), $w30, $TH);
 // pct 50 * 30/30 = 50. A hard-coded /100 denominator would have given 15.
@@ -80,24 +82,30 @@ check('all-zero weights: no division error, fit 0',
     $n['fit_score'] === 0 && $n['verdict'] === 'unqualified');
 
 $wMissing = [
-    'company_size' => 17, 'industry_fit' => 17, 'tech_stack' => 0,
+    'company_size' => 17, 'industry_fit' => 17,
     'target_title' => 17, 'geography' => 17, 'trigger_signals' => 17,
-]; // 'tech_stack' weight absent below
-unset($wMissing['tech_stack']);
+]; // 'trigger_signals' weight absent below
+unset($wMissing['trigger_signals']);
 $n = ScoreLeadFitAction::normalizeJevAnswers(ics_dim_answers(array_fill_keys($DIMS, 9.0)), $wMissing, $TH);
-check('missing weight key: fit still 100 (denominator 85)',
+check('missing weight key: fit still 100 (denominator 68)',
     $n['fit_score'] === 100, json_encode($n['fit_score']));
 check('missing weight key: dimension still scored 10/10 with 100.0 pct',
-    $n['dimensions']['tech_stack'] === 10 && $n['dimension_pcts']['tech_stack'] === 100.0);
+    $n['dimensions']['trigger_signals'] === 10 && $n['dimension_pcts']['trigger_signals'] === 100.0);
+
+$wStale = array_fill_keys($DIMS, 20);
+$wStale['tech_stack'] = 17; // retired dimension's row left in icp_dimensions
+$n = ScoreLeadFitAction::normalizeJevAnswers(ics_dim_answers(array_fill_keys($DIMS, 9.0)), $wStale, $TH);
+check('stray retired-dimension weight key ignored: fit still 100 (denominator 100, not 117)',
+    $n['fit_score'] === 100, json_encode($n['fit_score']));
 
 // --- 5. display conversion / clamping / confidence ----------------------------
 echo "5. display scores, clamping, confidence:\n";
 $n = ScoreLeadFitAction::normalizeJevAnswers(
-    ics_dim_answers(['company_size' => 0.0, 'industry_fit' => 7.5, 'tech_stack' => 8.9], 0.9),
+    ics_dim_answers(['company_size' => 0.0, 'industry_fit' => 7.5, 'trigger_signals' => 8.9], 0.9),
     ics_profile()['weights'], $TH);
 check('position 0 -> display 1', $n['dimensions']['company_size'] === 1);
 check('position 7.5 -> display 9 (round half up)', $n['dimensions']['industry_fit'] === 9);
-check('position 8.9 -> display 10', $n['dimensions']['tech_stack'] === 10);
+check('position 8.9 -> display 10', $n['dimensions']['trigger_signals'] === 10);
 
 $n = ScoreLeadFitAction::normalizeJevAnswers(
     ics_dim_answers(['company_size' => 42.0, 'industry_fit' => -3.0]),
@@ -124,7 +132,6 @@ $qs = ScoreLeadFitAction::buildFitQuestions(ics_profile()['dimensions']);
 $fallbacks = [
     'company_size'    => '10-500 employees',
     'industry_fit'    => 'proactive outreach',
-    'tech_stack'      => 'CRM/marketing/sales',
     'target_title'    => 'decision-maker or budget influencer',
     'geography'       => 'US, UK, EU, Canada, Australia',
     'trigger_signals' => 'recent hiring',
@@ -152,7 +159,7 @@ check('configured trigger signals render',
 
 // --- 7. fit rounding at the qualify boundary --------------------------------------
 echo "7. fit rounding at boundaries:\n";
-$wSingle = ['company_size' => 100, 'industry_fit' => 0, 'tech_stack' => 0,
+$wSingle = ['company_size' => 100, 'industry_fit' => 0,
             'target_title' => 0, 'geography' => 0, 'trigger_signals' => 0];
 $n = ScoreLeadFitAction::normalizeJevAnswers(ics_dim_answers(['company_size' => 6.705]), $wSingle, $TH);
 check('pct 74.5 rounds fit to 75 -> qualified',
