@@ -191,7 +191,7 @@ try {
         if ($action === 'update_status') {
             $id = (int)($input['id'] ?? 0);
             $status = trim($input['status'] ?? '');
-            $valid = ['New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted'];
+            $valid = ['New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted', 'Needs Review'];
             if ($id <= 0 || !in_array($status, $valid, true)) {
                 leads_error(400, 'Missing or invalid id/status');
             }

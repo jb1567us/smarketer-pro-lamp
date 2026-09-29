@@ -15,8 +15,9 @@ namespace App;
  * Routes each verdict to a DB-backed outcome using ONLY existing schema:
  *   - agent_traces      : audit trail of every routing decision (lead_id may be NULL)
  *   - leads.notes       : appended "[REPLY ROUTER ...]" markers, never overwritten
- *   - leads.status      : existing ENUM('New','Enriched','Contacted','Qualified',
- *                         'Unqualified','Converted','Drafted') — see §"status gaps"
+ *   - leads.status      : ENUM('New','Enriched','Contacted','Qualified',
+ *                         'Unqualified','Converted','Drafted','Needs Review')
+ *                         — see §"status gaps"
  *   - Compliance::suppress(): unsubscribe/hostile suppression writes
  *
  * Guardrails:

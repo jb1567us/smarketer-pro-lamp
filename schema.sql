@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS leads (
     contact_name VARCHAR(255),
     email VARCHAR(255) UNIQUE NOT NULL,
     website VARCHAR(255),
-    status ENUM('New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted') DEFAULT 'New',
+    status ENUM('New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted', 'Needs Review') DEFAULT 'New',
     lead_score INT DEFAULT 0,
     source VARCHAR(100),
     notes TEXT,
