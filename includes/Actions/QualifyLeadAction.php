@@ -14,6 +14,9 @@ class QualifyLeadAction extends AbstractAction
      * Hard per-call timeout (seconds) for the Jev qualification decision.
      * On timeout the decision tier fails over to the legacy LLM path —
      * the pipeline never hangs waiting for the decision API.
+     *
+     * The weighted per-dimension scoring path (ScoreLeadFitAction) applies
+     * the same budget; see its JEV_TIMEOUT_SECONDS.
      */
     private const JEV_TIMEOUT_SECONDS = 20;
 
@@ -35,25 +38,95 @@ class QualifyLeadAction extends AbstractAction
         $contact = $lead['contact_name'] ?? 'Unknown';
         $context = "Company: {$company}\nWebsite: {$website}\nContact: {$contact}";
 
-        $data = $this->decideQualification($persona, $goal, $context);
+        // Weighted ICP fit scoring. The legacy single-question qualification
+        // below is passed as the fallback callable, so "off" mode and every
+        // fail-closed path behave exactly as before this change.
+        $scorer = new ScoreLeadFitAction($this->pdo, $this->llmRouter);
+        $result = $scorer->score(
+            $lead,
+            function () use ($persona, $goal, $context) {
+                $answers = $this->legacyDecideQualification($persona, $goal, $context);
+                return $this->answersToQualification(
+                    $answers,
+                    self::buildDecisionQuestions()['fitLevels']
+                );
+            }
+        );
 
-        $isQualified = $data['qualified'] ?? false;
-        $status = $isQualified ? 'Qualified' : 'Unqualified';
-        $score = $data['score'] ?? 0;
-        $reason = $data['reason'] ?? '';
+        $verdict = $result['verdict']; // qualified | needs_review | unqualified
+        $status = self::statusForVerdict($verdict);
+        $score = (int)$result['fit_score'];
 
         // Phase 0 fix (was critical defect C2): qualification used to OVERWRITE
         // leads.notes, destroying the enrichment research the drafter needs.
         // The verdict is now APPENDED with a clear marker; existing notes
-        // (enrichment data, prior drafts) are preserved.
+        // (enrichment data, prior drafts) are preserved. The marker carries
+        // the per-dimension breakdown when the weighted path ran.
         $existingNotes = (string)($lead['notes'] ?? '');
-        $qualNote = "\n\n[Qualification " . date('Y-m-d') . "]: {$status} (score {$score}) — {$reason}";
-        $newNotes = $existingNotes . $qualNote;
+        $newNotes = $existingNotes . self::notesMarker($result, $status);
 
         $stmt = $this->pdo->prepare("UPDATE leads SET lead_score = ?, status = ?, notes = ? WHERE id = ?");
         $stmt->execute([$score, $status, $newNotes, $leadId]);
 
         return true;
+    }
+
+    /**
+     * Map a scoring verdict to a leads.status ENUM value.
+     *
+     * The schema has no 'Needs Review' status (ENUM is
+     * New/Enriched/Contacted/Qualified/Unqualified/Converted/Drafted), so the
+     * 50-75 review band is deliberately mapped to 'Unqualified': it keeps
+     * borderline leads OUT of sequences (fail-closed — 'Unqualified' is not
+     * in SequenceManager::ELIGIBLE_LEAD_STATUSES) while the notes marker
+     * records "Needs Review" so a human can flip the lead to 'Qualified'.
+     */
+    public static function statusForVerdict(string $verdict): string
+    {
+        return $verdict === 'qualified' ? 'Qualified' : 'Unqualified';
+    }
+
+    /**
+     * Build the notes marker appended to leads.notes.
+     *
+     * Legacy-source results keep the exact historical format so off/shadow
+     * behavior is byte-identical to before. Weighted/veto results extend it
+     * with the per-dimension breakdown (or the matched exclusion).
+     */
+    public static function notesMarker(array $result, string $status): string
+    {
+        $date = date('Y-m-d');
+        $score = (int)($result['fit_score'] ?? 0);
+        $reason = trim((string)($result['reason'] ?? ''));
+
+        if (($result['source'] ?? 'legacy') === 'legacy') {
+            return "\n\n[Qualification {$date}]: {$status} (score {$score}) — {$reason}";
+        }
+
+        $dimensionsLine = '';
+        $dims = $result['dimensions'] ?? [];
+        if (is_array($dims) && $dims !== []) {
+            $parts = [];
+            foreach ($dims as $key => $v) {
+                $parts[] = "{$key}={$v}/10";
+            }
+            $dimensionsLine = "\nDimensions: " . implode(', ', $parts) . '.';
+        }
+
+        $verdict = (string)($result['verdict'] ?? 'unqualified');
+        if ($verdict === 'needs_review') {
+            $qualifyAt = (int)(($result['thresholds'] ?? [])['qualify'] ?? 75);
+            return "\n\n[Qualification {$date}]: Needs Review (fit {$score}/100, below qualify threshold {$qualifyAt})"
+                . " — {$reason}{$dimensionsLine}";
+        }
+
+        if (($result['source'] ?? '') === 'veto') {
+            return "\n\n[Qualification {$date}]: Unqualified (fit 0/100) — {$reason}";
+        }
+
+        $profile = (string)($result['profile'] ?? '');
+        $profileBit = $profile !== '' ? ", ICP \"{$profile}\"" : '';
+        return "\n\n[Qualification {$date}]: {$status} (fit {$score}/100{$profileBit}) — {$reason}{$dimensionsLine}";
     }
 
     /**
@@ -71,6 +144,10 @@ class QualifyLeadAction extends AbstractAction
      * These dimensions must never be expanded ad hoc here; they come from the
      * app's real ICP criteria. Kept public-static so tests can assert the
      * decision question enumerates exactly these criteria.
+     *
+     * This is the LEGACY single-question path, preserved verbatim as the
+     * off-mode behavior and the fail-closed fallback for the weighted
+     * per-dimension scoring (ScoreLeadFitAction).
      *
      * @return string[]
      */
@@ -135,7 +212,9 @@ class QualifyLeadAction extends AbstractAction
     }
 
     /**
-     * Lead-qualification decision routed through the Jev decision tier.
+     * The LEGACY lead-qualification decision, preserved exactly as the
+     * pre-weighted behavior: off/shadow mode and every fail-closed path in
+     * ScoreLeadFitAction resolve to this.
      *
      * Modes (settings jev_enabled / jev_mode):
      *   off    — legacy LLM path, exactly as before (default).
@@ -148,7 +227,7 @@ class QualifyLeadAction extends AbstractAction
      * The Jev call runs under a hard per-decision timeout; on timeout or any
      * error the legacy path takes over (fail-closed to the existing behavior).
      */
-    private function decideQualification(string $persona, string $goal, string $context): array
+    private function legacyDecideQualification(string $persona, string $goal, string $context): array
     {
         $state = [
             'persona' => $persona,
@@ -177,7 +256,7 @@ class QualifyLeadAction extends AbstractAction
             self::JEV_TIMEOUT_SECONDS
         );
 
-        return $this->answersToQualification($answers, $fitLevels);
+        return $answers;
     }
 
     /**

@@ -66,7 +66,7 @@ $fitLevels = $built['fitLevels'];
 $questions = $built['questions'];
 $legacy = ['qualified' => false, 'score' => 20, 'reason' => 'legacy'];
 $legacyFn = fn() => $legacy;
-// Mirrors the extract/agree closures in QualifyLeadAction::decideQualification.
+// Mirrors the extract/agree closures in QualifyLeadAction::legacyDecideQualification.
 $extract = function ($a) use ($fitLevels) {
     if (is_array($a) && isset($a['qualified']) && is_array($a['qualified']) && isset($a['qualified']['noul'])) {
         $position = (float)($a['score']['score'] ?? 0);

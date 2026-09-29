@@ -24,6 +24,7 @@ $testFiles = [
     'test_enrich_sufficiency.php'=> 'enrichment sufficiency completeness criteria, loop guard, verdict shape',
     'test_followup_timing.php'   => 'follow-up cadence fallback, JEV normalization + sanity clamp',
     'test_decision_modes.php'    => 'off/shadow/live contract at the DecisionTier level + send_email.php wiring',
+    'test_fit_scoring.php'        => 'weighted ICP fit scoring: veto, weighted math, threshold bands, shadow/live, markers, execute()',
 ];
 
 $php = PHP_BINARY;
