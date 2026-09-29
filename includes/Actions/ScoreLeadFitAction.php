@@ -437,9 +437,13 @@ class ScoreLeadFitAction extends AbstractAction
             $questions['dim_' . $dimKey] = JevProvider::scoreQuestion(
                 "Score this lead's {$label} against the ICP target. " .
                 "Target: {$targetProse} " .
-                'Use ONLY evidence present in the lead context. ' .
-                'Thin or ambiguous evidence LOWERS the score — never guess, never inflate. ' .
-                'Answer 1 when there is no evidence either way; reserve 9-10 for direct, strong evidence.',
+                'Use ONLY evidence present in the lead context — never invent evidence. ' .
+                'When the context directly matches the stated target (a named item on the target list, ' .
+                'a value inside the target range, an explicitly stated trigger), score 8-10: ' .
+                'direct matches ARE strong evidence. ' .
+                'Score 4-7 when the evidence is partial, indirect, or merely suggestive. ' .
+                'Score 2-3 when the evidence is thin or ambiguous. ' .
+                'Answer 1 only when there is no evidence at all for this dimension.',
                 self::scoreLevels($label)
             );
         }
