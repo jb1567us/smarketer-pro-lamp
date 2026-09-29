@@ -53,7 +53,7 @@ register_shutdown_function(function () use ($repoConfig, $configStash) {
 });
 [$c] = [0];
 sh("mysql -u root -e \"DROP DATABASE IF EXISTS $dbName; CREATE DATABASE $dbName CHARACTER SET utf8mb4;\"");
-sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '$dbUser'@'%' IDENTIFIED BY '$dbPass'; GRANT ALL ON $dbName.* TO '$dbUser'@'%'; FLUSH PRIVILEGES;\"");
+sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '$dbUser'@'%' IDENTIFIED BY '$dbPass'; CREATE USER IF NOT EXISTS '$dbUser'@'localhost' IDENTIFIED BY '$dbPass'; ALTER USER '$dbUser'@'%' IDENTIFIED BY '$dbPass'; ALTER USER '$dbUser'@'localhost' IDENTIFIED BY '$dbPass'; GRANT ALL ON $dbName.* TO '$dbUser'@'%'; GRANT ALL ON $dbName.* TO '$dbUser'@'localhost'; FLUSH PRIVILEGES;\"");
 [$code] = sh("mysql -u $dbUser -p$dbPass $dbName < " . escapeshellarg($appRoot . 'schema.sql'));
 if ($code !== 0) { echo "FAIL schema import\n"; exit(1); }
 echo "PASS scratch DB ready\n";
