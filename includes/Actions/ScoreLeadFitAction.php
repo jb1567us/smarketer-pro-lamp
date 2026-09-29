@@ -12,10 +12,12 @@ use App\Jev\JevProvider;
 /**
  * ScoreLeadFitAction — weighted ICP fit scoring for a lead.
  *
- * ONE batched Jev decide() call answers six independent score questions
- * (one per ICP dimension, 1-10 each, ordered criteria), each converted to
+ * ONE batched Jev decide() call answers one independent score question per
+ * ENABLED ICP dimension (1-10 each, ordered criteria), each converted to
  * 0-100 via JevProvider::scoreToPercent() and combined with the active ICP
- * profile's weights into a single fit score 0-100.
+ * profile's weights into a single fit score 0-100. Disabled (optional)
+ * dimensions get no question at all (zero tokens) and are excluded from
+ * aggregation; the enabled weights renormalize to sum 100 at scoring time.
  *
  * Order of operations:
  *   1. HARD VETO FIRST: the profile's icp_exclusions are checked against the
@@ -120,14 +122,19 @@ class ScoreLeadFitAction extends AbstractAction
 
         $weights = $profile['weights'];
         $thresholds = $profile['thresholds'];
+        // Only enabled dimensions are asked and aggregated. Default-off
+        // (tech_stack disabled) is mathematically identical to the
+        // five-dimension model: the disabled weight is dropped and the
+        // remaining weights renormalize to sum 100.
+        $enabled = self::enabledKeys($profile['dimensions']);
         $questions = self::buildFitQuestions($profile['dimensions']);
 
         $state = [
             'persona' => 'B2B ICP Specialist',
-            'goal' => 'Score this lead\'s fit against the active ICP profile on five dimensions.',
+            'goal' => 'Score this lead\'s fit against the active ICP profile on ' . count($enabled) . ' dimensions.',
             'lead_context' => self::leadContext($lead),
             'icp_profile' => $profile['key'],
-            'dimensions_scored' => array_keys($weights),
+            'dimensions_scored' => $enabled,
         ];
 
         // Extract/​agree extend the existing shadow JSONL record: jev_value
@@ -138,7 +145,7 @@ class ScoreLeadFitAction extends AbstractAction
         // closures through DecisionTier::decide without the timeout override —
         // the override path builds its own provider and cannot take a scripted
         // one, same as the other Phase 4 decision points.)
-        $extract = self::shadowExtract($weights, $thresholds);
+        $extract = self::shadowExtract($weights, $thresholds, $enabled);
         $agree = self::shadowAgree($thresholds);
 
         $t0 = microtime(true);
@@ -160,9 +167,9 @@ class ScoreLeadFitAction extends AbstractAction
         }
         $latencyMs = (int)((microtime(true) - $t0) * 1000);
 
-        if (self::isJevFitAnswers($raw)) {
-            $norm = self::normalizeJevAnswers($raw, $weights, $thresholds);
-            $norm['reason'] = self::jevReason($norm, $profile);
+        if (self::isJevFitAnswers($raw, $enabled)) {
+            $norm = self::normalizeJevAnswers($raw, $weights, $thresholds, $enabled);
+            $norm['reason'] = self::jevReason($norm, $profile, $enabled);
             $norm['veto'] = null;
             $norm['latency_ms'] = $latencyMs;
             $norm['profile'] = $profile['key'];
@@ -238,12 +245,18 @@ class ScoreLeadFitAction extends AbstractAction
      * pcts, and llm_value carries the legacy verdict/score — this is how the
      * per-dimension Jev scores land in logs/jev_shadow.jsonl without any
      * change to DecisionTier.
+     *
+     * @param array<string,int> $weights
+     * @param array{qualify:int,review:int} $thresholds
+     * @param string[]|null $enabledDims enabled dimension keys; null = all
+     *   IcpProfile::DIMENSIONS (the maximal interpretation).
      */
-    public static function shadowExtract(array $weights, array $thresholds): callable
+    public static function shadowExtract(array $weights, array $thresholds, ?array $enabledDims = null): callable
     {
-        return function ($a) use ($weights, $thresholds) {
-            if (self::isJevFitAnswers($a)) {
-                $norm = self::normalizeJevAnswers($a, $weights, $thresholds);
+        $enabled = $enabledDims ?? IcpProfile::DIMENSIONS;
+        return function ($a) use ($weights, $thresholds, $enabled) {
+            if (self::isJevFitAnswers($a, $enabled)) {
+                $norm = self::normalizeJevAnswers($a, $weights, $thresholds, $enabled);
                 return [
                     'verdict' => $norm['verdict'],
                     'fit_score' => $norm['fit_score'],
@@ -418,22 +431,52 @@ class ScoreLeadFitAction extends AbstractAction
     // ------------------------------------------------------------------
 
     /**
-     * Build the six batched score questions. Each question's instructions
-     * reference that dimension's target_config (rendered to prose) from the
-     * active ICP profile.
+     * Enabled dimension keys for a resolved dimensions map, in canonical
+     * IcpProfile::DIMENSIONS order. A dimension entry without an 'enabled'
+     * key is treated as enabled (backward-compatible with fixtures that
+     * predate the toggle flag); the production read path
+     * (IcpProfile::dimensions()) always carries the flag.
      *
-     * @param array<string,array{weight:int,target_config:array}> $dimensions
+     * @param array<string,array{weight:int,buyer_locked?:bool,enabled?:bool,target_config?:array}> $dimensions
+     * @return string[]
+     */
+    public static function enabledKeys(array $dimensions): array
+    {
+        $out = [];
+        foreach (IcpProfile::DIMENSIONS as $dimKey) {
+            if (!isset($dimensions[$dimKey]) || !is_array($dimensions[$dimKey])) {
+                continue;
+            }
+            if (array_key_exists('enabled', $dimensions[$dimKey]) && !$dimensions[$dimKey]['enabled']) {
+                continue;
+            }
+            $out[] = $dimKey;
+        }
+        return $out;
+    }
+
+    /**
+     * Build the batched score questions for the ENABLED dimensions only.
+     * Each question's instructions reference that dimension's target_config
+     * (rendered to prose) from the active ICP profile. A disabled dimension
+     * gets no question at all — zero tokens, zero aggregation weight.
+     *
+     * @param array<string,array{weight:int,buyer_locked?:bool,enabled?:bool,target_config?:array}> $dimensions
      * @return array<string,array> question key => Jev question
      */
     public static function buildFitQuestions(array $dimensions): array
     {
         $questions = [];
-        foreach (IcpProfile::DIMENSIONS as $dimKey) {
-            if (!isset($dimensions[$dimKey])) {
-                continue;
-            }
+        foreach (self::enabledKeys($dimensions) as $dimKey) {
             $label = IcpProfile::DIMENSION_LABELS[$dimKey] ?? $dimKey;
             $targetProse = self::targetProse($dimKey, $dimensions[$dimKey]['target_config'] ?? []);
+            if ($dimKey === 'tech_stack') {
+                $questions['dim_' . $dimKey] = JevProvider::scoreQuestion(
+                    self::techStackInstructions($targetProse),
+                    self::techStackScoreLevels($label)
+                );
+                continue;
+            }
             $questions['dim_' . $dimKey] = JevProvider::scoreQuestion(
                 "Score this lead's {$label} against the ICP target. " .
                 "Target: {$targetProse} " .
@@ -451,6 +494,50 @@ class ScoreLeadFitAction extends AbstractAction
             );
         }
         return $questions;
+    }
+
+    /**
+     * Discoverability rubric for the tech_stack dimension (only ever asked
+     * when the buyer has enabled it). The dimension measures HOW MUCH of the
+     * target technology surface is discoverable in the evidence — not whether
+     * the prospect's stack is "good". Nothing found = low score, and the
+     * never-invent-evidence instruction stays prominent.
+     */
+    private static function techStackInstructions(string $targetProse): string
+    {
+        return "Score this lead's Tech stack on DISCOVERABILITY: how much of the target " .
+            "technology surface was actually found in the lead context. This dimension " .
+            "measures evidence availability, NOT whether the prospect's stack is good. " .
+            "Target technology surface: {$targetProse} " .
+            'Use ONLY evidence present in the lead context — never invent evidence. ' .
+            'A technology you cannot see in the evidence was not found; score accordingly. ' .
+            'Rubric: 9-10 = target tech surface confirmed from evidence (key technologies ' .
+            'identified); 7-8 = partial, core buying-center tech (e.g. CRM) found; ' .
+            '4-6 = thin hints only; 2-3 = minimal traces; 1 = nothing discoverable in ' .
+            'the evidence.';
+    }
+
+    /**
+     * Ten ordered levels for the tech_stack discoverability spectrum
+     * (level 0 = worst). Mirrors scoreLevels() but in discoverability
+     * language, so the model scores evidence availability, not stack quality.
+     *
+     * @return string[]
+     */
+    private static function techStackScoreLevels(string $label): array
+    {
+        return [
+            "1 — No {$label} discoverability: no technology evidence in the lead context at all.",
+            "2 — Minimal {$label} traces: at most one vague hint at a technology.",
+            "3 — Weak {$label} discoverability: faint hints, nothing attributable to the target surface.",
+            "4 — Thin {$label} hints: some technology mentioned, but not the target surface.",
+            "5 — Partial {$label} evidence: scattered tech mentions, target surface mostly unconfirmed.",
+            "6 — Moderate {$label} discoverability: part of the target surface evidenced, key gaps remain.",
+            "7 — Good {$label} discoverability: core buying-center tech (e.g. CRM) found in evidence.",
+            "8 — Strong {$label} discoverability: most of the target surface confirmed.",
+            "9 — Near-complete {$label} discoverability: target tech surface confirmed from evidence (key technologies identified).",
+            "10 — Exceptional {$label} discoverability: the full target surface confirmed on multiple strong evidence points.",
+        ];
     }
 
     /**
@@ -529,6 +616,15 @@ class ScoreLeadFitAction extends AbstractAction
                     return "Buying-trigger signals: {$signals}.";
                 }
                 return 'Buying-trigger signals: recent hiring (especially sales/marketing), funding rounds, expansion or new office openings, leadership changes.';
+            case 'tech_stack':
+                // Discoverability rubric (see techStackInstructions): the
+                // buyer lists the technologies they sell into; the model
+                // scores how much of that surface is actually found.
+                $tools = $list($config['tools'] ?? []);
+                if ($tools !== '') {
+                    return "the target technology surface: {$tools}.";
+                }
+                return 'the target technology surface (the buyer has not listed target technologies yet — score what technology evidence the context reveals).';
             default:
                 return 'the buyer-configured target for this dimension';
         }
@@ -538,12 +634,16 @@ class ScoreLeadFitAction extends AbstractAction
     // Answer normalization
     // ------------------------------------------------------------------
 
-    private static function isJevFitAnswers($a): bool
+    /**
+     * @param string[]|null $enabledDims enabled dimension keys; null = all
+     *   IcpProfile::DIMENSIONS (the maximal interpretation).
+     */
+    private static function isJevFitAnswers($a, ?array $enabledDims = null): bool
     {
         if (!is_array($a)) {
             return false;
         }
-        foreach (IcpProfile::DIMENSIONS as $dimKey) {
+        foreach ($enabledDims ?? IcpProfile::DIMENSIONS as $dimKey) {
             $q = 'dim_' . $dimKey;
             if (!isset($a[$q]) || !is_array($a[$q]) || !array_key_exists('score', $a[$q])) {
                 return false;
@@ -553,27 +653,38 @@ class ScoreLeadFitAction extends AbstractAction
     }
 
     /**
-     * Convert the five raw Jev score answers into the weighted result.
+     * Convert the raw Jev score answers into the weighted result.
      * Each answer's position (0..9) becomes 0-100 via scoreToPercent() and a
-     * 1-10 display score; the fit score is the weight-weighted sum.
+     * 1-10 display score; the fit score is the weight-weighted sum over the
+     * ENABLED dimensions only, renormalized so the enabled weights sum to
+     * 100. A disabled dimension's weight can never dilute the score — with
+     * the default-off profile (five dims x 20) this is exactly the
+     * five-dimension model.
      *
      * @param array<string,int> $weights dimension key => weight (0-100)
+     * @param string[]|null $enabledDims enabled dimension keys; null = all
+     *   IcpProfile::DIMENSIONS (the maximal interpretation).
      * @return array{qualified:bool,verdict:string,fit_score:int,dimensions:array<string,int>,
      *               dimension_pcts:array<string,float>,confidence:float,source:string}
      */
-    public static function normalizeJevAnswers(array $answers, array $weights, array $thresholds): array
-    {
+    public static function normalizeJevAnswers(
+        array $answers,
+        array $weights,
+        array $thresholds,
+        ?array $enabledDims = null
+    ): array {
+        $enabled = $enabledDims ?? IcpProfile::DIMENSIONS;
         $dimensions = [];
         $pcts = [];
         $confidences = [];
-        // Belt-and-braces: weight keys for dimensions the model no longer
-        // scores (e.g. a stale tech_stack row left in icp_dimensions) must
+        // Belt-and-braces: weight keys for dimensions outside the enabled
+        // set (unknown keys, or a stale row for a disabled dimension) must
         // never inflate the denominator and dilute every score.
-        $weights = array_intersect_key($weights, array_fill_keys(IcpProfile::DIMENSIONS, true));
+        $weights = array_intersect_key($weights, array_fill_keys($enabled, true));
         $weightSum = max(1, (int)array_sum($weights));
         $fitAccum = 0.0;
 
-        foreach (IcpProfile::DIMENSIONS as $dimKey) {
+        foreach ($enabled as $dimKey) {
             $ans = $answers['dim_' . $dimKey] ?? [];
             $position = (float)($ans['score'] ?? 0.0);
             $position = max(0.0, min(9.0, $position)); // clamp to the 10-level spectrum
@@ -635,10 +746,10 @@ class ScoreLeadFitAction extends AbstractAction
         ];
     }
 
-    private static function jevReason(array $norm, array $profile): string
+    private static function jevReason(array $norm, array $profile, ?array $enabledDims = null): string
     {
         $parts = [];
-        foreach (IcpProfile::DIMENSIONS as $dimKey) {
+        foreach ($enabledDims ?? IcpProfile::DIMENSIONS as $dimKey) {
             $parts[] = $dimKey . '=' . ($norm['dimensions'][$dimKey] ?? 0) . '/10';
         }
         $verdictLabel = [

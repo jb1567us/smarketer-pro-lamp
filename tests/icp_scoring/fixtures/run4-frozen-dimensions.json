@@ -1,0 +1,314 @@
+{
+ "_provenance": "Frozen TypeSafe run-4 real-data labels + dimension scores, 2026-09-29 (typesafe-fit-remeasurement-run4-real-data-2026-09-29.json). Generated once from that file; never re-scored. No API calls.",
+ "thresholds": {
+  "qualify": 75,
+  "review": 50
+ },
+ "leads": [
+  {
+   "company": "Chili Piper",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 9,
+    "geography": 9,
+    "trigger_signals": 7,
+    "tech_stack": 9
+   }
+  },
+  {
+   "company": "ChurnZero",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 8,
+    "trigger_signals": 8,
+    "tech_stack": 7
+   }
+  },
+  {
+   "company": "Cognism",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 8,
+    "trigger_signals": 7,
+    "tech_stack": 7
+   }
+  },
+  {
+   "company": "Beamery",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 8,
+    "trigger_signals": 6,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Vidyard",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 9,
+    "geography": 8,
+    "trigger_signals": 7,
+    "tech_stack": 8
+   }
+  },
+  {
+   "company": "Loopio",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 8,
+    "trigger_signals": 7,
+    "tech_stack": 7
+   }
+  },
+  {
+   "company": "Klue",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 8,
+    "trigger_signals": 7,
+    "tech_stack": 6
+   }
+  },
+  {
+   "company": "Humi",
+   "human": "qualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 8,
+    "trigger_signals": 6,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "CIENCE Technologies",
+   "human": "unqualified",
+   "source": "veto",
+   "veto": true
+  },
+  {
+   "company": "Toyota Motor Corporation",
+   "human": "unqualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 1,
+    "industry_fit": 1,
+    "target_title": 1,
+    "geography": 1,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Marriott International",
+   "human": "unqualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 1,
+    "industry_fit": 1,
+    "target_title": 2,
+    "geography": 9,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Nike, Inc.",
+   "human": "unqualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 1,
+    "industry_fit": 1,
+    "target_title": 4,
+    "geography": 9,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Greggs plc",
+   "human": "unqualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 1,
+    "industry_fit": 1,
+    "target_title": 1,
+    "geography": 9,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Mayo Clinic",
+   "human": "unqualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 1,
+    "industry_fit": 1,
+    "target_title": 1,
+    "geography": 9,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Gold'n Fresh Bakery",
+   "human": "unqualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 1,
+    "industry_fit": 1,
+    "target_title": 1,
+    "geography": 9,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Plumber Westminster",
+   "human": "unqualified",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 1,
+    "industry_fit": 1,
+    "target_title": 1,
+    "geography": 9,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "CharlieHR",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 2,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 9,
+    "trigger_signals": 1,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Vendasta",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 2,
+    "industry_fit": 9,
+    "target_title": 9,
+    "geography": 9,
+    "trigger_signals": 3,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Usercentrics",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 2,
+    "trigger_signals": 7,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Deputy",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 2,
+    "trigger_signals": 7,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "lemlist",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 8,
+    "geography": 1,
+    "trigger_signals": 2,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Reprise",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 8,
+    "industry_fit": 9,
+    "target_title": 1,
+    "geography": 9,
+    "trigger_signals": 7,
+    "tech_stack": 1
+   }
+  },
+  {
+   "company": "Qualified",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 9,
+    "target_title": 5,
+    "geography": 9,
+    "trigger_signals": 7,
+    "tech_stack": 8
+   }
+  },
+  {
+   "company": "Accurx",
+   "human": "needs_review",
+   "source": "jev",
+   "dimensions": {
+    "company_size": 9,
+    "industry_fit": 7,
+    "target_title": 8,
+    "geography": 9,
+    "trigger_signals": 7,
+    "tech_stack": 1
+   }
+  }
+ ]
+}

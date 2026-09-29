@@ -10,7 +10,7 @@
  *   2. CSRF: Auth::requireCsrf() runs after the GET branch exits and before
  *      the action dispatch, so every mutating action requires a token.
  *   3. Method allowlist: GET/POST/PUT; anything else -> 405.
- *   4. Action allowlist: exactly the six documented actions; unknown ->
+ *   4. Action allowlist: exactly the seven documented actions; unknown ->
  *      400 'Unknown action.'.
  *   5. save_weights routes through IcpProfile::updateWeights() with
  *      buyerSet=true (sum-to-100 enforced server-side, manual edit marks
@@ -18,6 +18,10 @@
  *   6. save_thresholds validates 0 <= review < qualify <= 100.
  *   7. Hygiene: no secrets read or written; weight_history capped at 25
  *      rows; threshold settings keys match IcpProfile::thresholds().
+ *   8. set_dimension_enabled: the tech_stack toggle — validates `enabled`
+ *      as a boolean, requires the full weights vector, and delegates to
+ *      AdjustIcpWeightsAction::setDimensionEnabled(); ICP_TARGET_SPEC
+ *      accepts the tech_stack target surface (tools list).
  *
  * Usage: php tests/icp_scoring/test_api_contract.php
  */
@@ -67,7 +71,7 @@ check('non-GET/POST/PUT -> 405',
 // --- 4. action allowlist --------------------------------------------------------------------
 echo "4. action allowlist:\n";
 foreach (['save_hypothesis', 'save_weights', 'add_exclusion', 'delete_exclusion',
-          'unlock_dimension', 'save_thresholds'] as $action) {
+          'unlock_dimension', 'save_thresholds', 'set_dimension_enabled'] as $action) {
     check("action '{$action}' is allowlisted",
         strpos($api, "case '{$action}':") !== false);
 }
@@ -117,3 +121,15 @@ check('CSRF token stripped from the payload before dispatch (transport-only)',
 DecisionTier::resetForTests();
 ics_assert_default_mode_off('(end)');
 exit(ics_summary('test_api_contract.php'));
+
+// --- 8. set_dimension_enabled: the tech_stack toggle --------------------------------------
+echo "8. set_dimension_enabled (tech_stack toggle):\n";
+check('toggle delegates to AdjustIcpWeightsAction::setDimensionEnabled()',
+    strpos($api, '->setDimensionEnabled($profileId, $key, $enabled, $weights, $reason)') !== false);
+check('toggle validates enabled as a strict boolean',
+    strpos($api, 'FILTER_VALIDATE_BOOLEAN') !== false
+    && strpos($api, "enabled must be true or false.") !== false);
+check('toggle requires the full weights vector',
+    strpos($api, "weights must be an object of dimension => weight.") !== false);
+check('ICP_TARGET_SPEC accepts the tech_stack target surface (tools list)',
+    strpos($api, "'tech_stack'      => ['tools' => 'string_list']") !== false);

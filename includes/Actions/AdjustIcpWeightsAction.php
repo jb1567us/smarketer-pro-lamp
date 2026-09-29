@@ -88,14 +88,22 @@ use App\Icp\IcpProfile;
  * includes/Icp/IcpProfile.php on this branch):
  *   IcpProfile::active(): ?array{id:int,...}
  *   IcpProfile::dimensions(int $profileId): array dim => ['weight'=>int,
- *       'buyer_locked'=>bool, 'target_config'=>array]
+ *       'buyer_locked'=>bool, 'enabled'=>bool, 'target_config'=>array]
+ *     — 'enabled' is the toggle flag for optional dimensions (tech_stack);
+ *     a disabled dimension is never scored and never tuned.
  *   IcpProfile::updateWeights(int $profileId, array $weights, string $reason,
  *       ?int $sampleSize, bool $buyerSet, string $createdBy): void
  *     — requires every dimension present, integer weights summing to 100;
  *     writes icp_weight_history rows (reason, sample_size, created_by).
+ *   IcpProfile::setDimensionEnabled(int $profileId, string $key, bool $on)
+ *     — flips the toggle flag on an OPTIONAL dimension only.
  * The three protected seam methods (resolveProfileId / loadDimensions /
  * writeWeights) wrap those calls so tests can substitute fakes without
- * touching the static gateway.
+ * touching the static gateway. setDimensionEnabled() is the buyer-facing
+ * toggle entry point: it takes the toggle + the full new weight vector
+ * (tech_stack weight set by the buyer when enabling, forced to 0 when
+ * disabling), buyer-locks the toggled dimension, and records everything in
+ * icp_weight_history.
  */
 class AdjustIcpWeightsAction implements ActionInterface
 {
@@ -134,7 +142,8 @@ class AdjustIcpWeightsAction implements ActionInterface
 
     /**
      * Default weight vector used by resetToDefaults(), mirroring the seeded
-     * default profile in migrations/2026-09-28-icp-scoring.sql.
+     * default profile in migrations/2026-09-28-icp-scoring.sql plus the
+     * toggle migration (tech_stack re-added disabled at weight 0).
      */
     public const DEFAULT_WEIGHTS = [
         'company_size'    => 20,
@@ -142,6 +151,7 @@ class AdjustIcpWeightsAction implements ActionInterface
         'target_title'    => 20,
         'geography'       => 20,
         'trigger_signals' => 20,
+        'tech_stack'      => 0,
     ];
 
     public function __construct(
@@ -191,7 +201,8 @@ class AdjustIcpWeightsAction implements ActionInterface
     /**
      * Buyer-facing reset: restore the default weight vector on every UNLOCKED
      * dimension. buyer_locked dimensions keep their weight — the buyer
-     * override always wins, even on reset.
+     * override always wins, even on reset. Disabled (optional) dimensions
+     * are left untouched (they are not scored, so they keep weight 0).
      *
      * @return array same shape as run(); status 'adjusted' | 'skipped' | 'error'.
      */
@@ -214,7 +225,17 @@ class AdjustIcpWeightsAction implements ActionInterface
                 if (!empty($dim['buyer_locked'])) {
                     $locked[] = $key;
                 }
+                // A disabled dimension is never scored: keep it exactly as-is,
+                // same as a buyer-locked one.
+                if (array_key_exists('enabled', $dim) && empty($dim['enabled'])) {
+                    $locked[] = $key;
+                }
             }
+            // Deduplicate: a disabled dimension is very often ALSO buyer-locked
+            // (the toggle locks it). Counting its weight twice here would
+            // shrink the unlocked target and silently under-allocate every
+            // enabled dimension.
+            $locked = array_values(array_unique($locked));
             $unlocked = array_values(array_diff(array_keys($weights), $locked));
             if ($unlocked === []) {
                 return $this->skip('reset refused: all dimensions buyer-locked (buyer override wins)');
@@ -280,6 +301,104 @@ class AdjustIcpWeightsAction implements ActionInterface
     }
 
     // ------------------------------------------------------------------
+    // Optional-dimension toggle (buyer-facing)
+    // ------------------------------------------------------------------
+
+    /**
+     * Enable or disable a toggleable (optional) ICP dimension — today only
+     * tech_stack.
+     *
+     * The buyer supplies the toggle AND the full new weight vector in one
+     * call: when enabling, tech_stack gets the buyer-chosen weight (>= 1);
+     * when disabling, its weight is forced to 0 (the flag, not weight 0, is
+     * what excludes it from scoring). The vector must cover every known
+     * dimension and sum to exactly 100 — IcpProfile::updateWeights enforces
+     * that and records one icp_weight_history row per changed dimension.
+     *
+     * buyer_locked: the toggle is itself a buyer action, so the toggled
+     * dimension is buyer-locked afterwards — the auto-tuner will never move
+     * a weight the buyer set by hand. (That is what "respect buyer_locked"
+     * means here: the lock records buyer intent; run()/resetToDefaults()
+     * keep skipping locked dims.)
+     *
+     * Fail-safe ordering: enabling writes the weights first (the dimension
+     * is still disabled, so scoring ignores the new weight until the flag
+     * flips); disabling flips the flag first (scoring stops immediately,
+     * the weight is zeroed after). Either half-finished state scores exactly
+     * like "disabled".
+     *
+     * @param array<string,int> $weights full dimension => weight vector
+     * @return array{status:string,enabled:bool,weights:array<string,int>,detail:string}
+     * @throws \InvalidArgumentException on bad dimension key, bad weight, or
+     *   unknown profile (no writes happen before validation).
+     */
+    public function setDimensionEnabled(
+        int $profileId,
+        string $dimensionKey,
+        bool $enabled,
+        array $weights,
+        string $reason = ''
+    ): array {
+        if (!in_array($dimensionKey, IcpProfile::OPTIONAL_DIMENSIONS, true)) {
+            throw new \InvalidArgumentException(
+                "Dimension '{$dimensionKey}' is not toggleable; only "
+                . implode(', ', IcpProfile::OPTIONAL_DIMENSIONS) . ' may be enabled/disabled.'
+            );
+        }
+        $dims = $this->loadDimensions($profileId);
+        if ($dims === [] || !isset($dims[$dimensionKey])) {
+            throw new \InvalidArgumentException("Unknown ICP profile {$profileId}.");
+        }
+
+        $techWeight = $weights[$dimensionKey] ?? null;
+        if ($enabled) {
+            if (!is_int($techWeight) && !(is_string($techWeight) && ctype_digit((string)$techWeight))) {
+                throw new \InvalidArgumentException(
+                    "Enabling '{$dimensionKey}' requires a weight of 1-100."
+                );
+            }
+            $techWeight = (int)$techWeight;
+            if ($techWeight < 1 || $techWeight > 100) {
+                throw new \InvalidArgumentException(
+                    "Enabling '{$dimensionKey}' requires a weight of 1-100 (got {$techWeight})."
+                );
+            }
+            $weights[$dimensionKey] = $techWeight;
+        } else {
+            // The flag excludes the dimension; weight 0 keeps the sum-100
+            // invariant meaningful and the vector honest.
+            $weights[$dimensionKey] = 0;
+        }
+
+        $reasonText = $reason !== ''
+            ? $reason
+            : ($enabled
+                ? "buyer enabled '{$dimensionKey}' dimension (weight {$weights[$dimensionKey]})"
+                : "buyer disabled '{$dimensionKey}' dimension");
+
+        if ($enabled) {
+            IcpProfile::updateWeights($profileId, $weights, $reasonText, null, false, 'user');
+            IcpProfile::lockDimension($profileId, $dimensionKey);
+            IcpProfile::setDimensionEnabled($profileId, $dimensionKey, true);
+        } else {
+            IcpProfile::setDimensionEnabled($profileId, $dimensionKey, false);
+            IcpProfile::updateWeights($profileId, $weights, $reasonText, null, false, 'user');
+            IcpProfile::lockDimension($profileId, $dimensionKey);
+        }
+
+        $newWeights = IcpProfile::weights($profileId);
+        error_log('[AdjustIcpWeights] dimension toggle: ' . $dimensionKey
+            . ' -> ' . ($enabled ? 'enabled' : 'disabled')
+            . ' on profile ' . $profileId . ': ' . json_encode($newWeights));
+        return [
+            'status'  => 'adjusted',
+            'enabled' => $enabled,
+            'weights' => $newWeights,
+            'detail'  => $reasonText,
+        ];
+    }
+
+    // ------------------------------------------------------------------
     // Core pass
     // ------------------------------------------------------------------
 
@@ -296,15 +415,22 @@ class AdjustIcpWeightsAction implements ActionInterface
 
         $weights = [];
         $locked  = [];
+        $disabled = [];
         foreach ($dims as $key => $dim) {
             $weights[$key] = (int)($dim['weight'] ?? 0);
             if (!empty($dim['buyer_locked'])) {
                 $locked[] = $key;
             }
+            // Disabled (optional) dimensions are never scored, so they carry
+            // no signal and are never tuned. A dimension entry without an
+            // 'enabled' key predates the toggle flag and counts as enabled.
+            if (array_key_exists('enabled', $dim) && empty($dim['enabled'])) {
+                $disabled[] = $key;
+            }
         }
-        $unlocked = array_values(array_diff(array_keys($weights), $locked));
+        $unlocked = array_values(array_diff(array_keys($weights), $locked, $disabled));
         if ($unlocked === []) {
-            return $this->skip('all dimensions buyer-locked; nothing adjustable');
+            return $this->skip('all dimensions buyer-locked or disabled; nothing adjustable');
         }
 
         $signals = $this->collectEngagementSignals();
@@ -342,7 +468,13 @@ class AdjustIcpWeightsAction implements ActionInterface
             $correlations[$dim] = self::pearson($xs, $ys);
         }
 
-        $newWeights = self::proposeWeights($weights, $locked, $correlations);
+        $newWeights = self::proposeWeights(
+            $weights,
+            // Disabled dims are kept EXACTLY like buyer-locked ones: they are
+            // never scored, so the tuner must not move their weight.
+            array_merge($locked, $disabled),
+            $correlations
+        );
         if ($newWeights === $weights) {
             return $this->skip(
                 'no predictive signal above noise floor (n=' . count($sample) .
@@ -396,7 +528,8 @@ class AdjustIcpWeightsAction implements ActionInterface
     }
 
     /**
-     * @return array dim => ['weight'=>int,'buyer_locked'=>bool,'target_config'=>array]
+     * @return array dim => ['weight'=>int,'buyer_locked'=>bool,'enabled'=>bool,'target_config'=>array]
+     *   ('enabled' absent = predates the toggle flag = enabled)
      */
     protected function loadDimensions(int $profileId): array
     {

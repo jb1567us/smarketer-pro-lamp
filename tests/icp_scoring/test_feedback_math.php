@@ -21,6 +21,9 @@
  *      the timestamp, and is non-fatal to the queue.
  *   E. Constant pins: INTENT_SIGNALS map, OPENED_NO_REPLY_SIGNAL,
  *      MIN_ENGAGED_LEADS, MAX_STEP_PER_RUN, CORR_NOISE_FLOOR.
+ *   F. Disabled tech_stack: run() excludes it from tuning (weight held
+ *      fixed even at r=1.0), resetToDefaults() holds it fixed and counts
+ *      its lock exactly once even when it is also buyer_locked.
  *
  * Usage: php tests/icp_scoring/test_feedback_math.php
  */
@@ -112,7 +115,8 @@ echo "B/C. run() and resetToDefaults() via seams:\n";
 class IcsAdjust extends A
 {
     public ?int $pid = 1;
-    /** @var array dim => ['weight'=>int,'buyer_locked'=>bool,'target_config'=>array] */
+    /** @var array dim => ['weight'=>int,'buyer_locked'=>bool,'enabled'=>bool,'target_config'=>array]
+     *   ('enabled' may be absent = predates the toggle flag = enabled) */
     public array $dims = [];
     public ?array $written = null;
     public ?string $writtenReason = null;
@@ -120,11 +124,16 @@ class IcsAdjust extends A
     public ?string $writtenBy = null;
     public bool $throwOnDims = false;
 
-    public static function dimsFor(array $weights, array $locked = []): array
+    public static function dimsFor(array $weights, array $locked = [], ?array $enabled = null): array
     {
         $out = [];
         foreach ($weights as $dim => $w) {
-            $out[$dim] = ['weight' => $w, 'buyer_locked' => in_array($dim, $locked, true), 'target_config' => []];
+            $out[$dim] = [
+                'weight' => $w,
+                'buyer_locked' => in_array($dim, $locked, true),
+                'enabled' => $enabled === null || ($enabled[$dim] ?? true),
+                'target_config' => [],
+            ];
         }
         return $out;
     }
@@ -296,6 +305,85 @@ $res7 = $action7->resetToDefaults();
 check('resetToDefaults(): all locked -> refused, buyer override wins',
     $res7['status'] === 'skipped' && str_contains((string)$res7['detail'], 'refused')
     && $action7->written === null);
+
+// --- F. Disabled tech_stack: tuner ignores it, reset holds it fixed -------------
+echo "F. disabled tech_stack in run()/resetToDefaults():\n";
+
+// F1. run(): a disabled dimension is excluded from tuning even if its
+// correlation would be huge — its weight stays fixed, the enabled slice
+// renormalizes to (100 - fixed). tech_stack would nudge +5 at r=1.0.
+$pdoF = ScriptedPdo::make([
+    ['match' => 'sequence_events', 'rows' => ics_events_script()],
+    ['match' => 'FROM leads', 'rows' => ics_scores_script()],
+]);
+$actionF = new IcsAdjust($pdoF);
+$actionF->dims = IcsAdjust::dimsFor(
+    ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+     'geography' => 20, 'trigger_signals' => 20, 'tech_stack' => 0],
+    [],
+    ['tech_stack' => false]
+);
+$resF = $actionF->run();
+check('run(): status adjusted', $resF['status'] === 'adjusted', $resF['detail'] ?? '');
+check('run(): disabled tech_stack held fixed at 0 (excluded from tuning)',
+    $actionF->written !== null && $actionF->written['tech_stack'] === 0);
+$enabledSum = 0;
+foreach (($actionF->written ?? []) as $dim => $w) {
+    if ($dim !== 'tech_stack') {
+        $enabledSum += $w;
+    }
+}
+check('run(): enabled five still sum to 100, predictive dim nudged up',
+    $enabledSum === 100
+    && ($actionF->written['company_size'] ?? 0) > 20
+    && count($actionF->written ?? []) === 6,
+    json_encode($actionF->written));
+check('run(): no correlation computed for the disabled dimension',
+    !array_key_exists('tech_stack', $resF['correlations'] ?? []));
+
+// F2. resetToDefaults(): disabled dim is held fixed and its lock is counted
+// exactly ONCE even when it is also buyer-locked (deduplication).
+// tech disabled + locked at weight 10 (inconsistent state, reachable only
+// via a direct write) -> locked total is 10, not 20; enabled five scale to
+// 90 = [18,18,18,18,18].
+$actionF2 = new IcsAdjust($pdoF);
+$actionF2->dims = IcsAdjust::dimsFor(
+    ['company_size' => 30, 'industry_fit' => 30, 'target_title' => 3,
+     'geography' => 5, 'trigger_signals' => 2, 'tech_stack' => 10],
+    ['tech_stack'],
+    ['tech_stack' => false]
+);
+$resF2 = $actionF2->resetToDefaults();
+$enabledVals = [];
+foreach (($actionF2->written ?? []) as $dim => $w) {
+    if ($dim !== 'tech_stack') {
+        $enabledVals[] = $w;
+    }
+}
+sort($enabledVals);
+check('resetToDefaults(): disabled dim held fixed at its weight',
+    $actionF2->written !== null && $actionF2->written['tech_stack'] === 10,
+    json_encode($actionF2->written));
+check('resetToDefaults(): disabled+locked weight counted once (enabled five are 18s)',
+    $enabledVals === [18, 18, 18, 18, 18] && array_sum($actionF2->written ?? []) === 100,
+    json_encode($actionF2->written));
+
+// F3. The normal default-off case: tech disabled at 0 -> core five reset to 20.
+$actionF3 = new IcsAdjust($pdoF);
+$actionF3->dims = IcsAdjust::dimsFor(
+    ['company_size' => 40, 'industry_fit' => 30, 'target_title' => 10,
+     'geography' => 10, 'trigger_signals' => 10, 'tech_stack' => 0],
+    [],
+    ['tech_stack' => false]
+);
+$resF3 = $actionF3->resetToDefaults();
+check('resetToDefaults(): default-off -> core five reset to 20, tech stays 0/quiet',
+    $actionF3->written !== null
+    && array_intersect_key($actionF3->written, array_flip(['company_size', 'industry_fit', 'target_title', 'geography', 'trigger_signals']))
+       === ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+            'geography' => 20, 'trigger_signals' => 20]
+    && $actionF3->written['tech_stack'] === 0,
+    json_encode($actionF3->written));
 
 // --- D. cron daily gate (static) ------------------------------------------------------
 echo "D. cron daily gate:\n";

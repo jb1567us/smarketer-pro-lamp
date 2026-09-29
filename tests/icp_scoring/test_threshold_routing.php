@@ -141,6 +141,21 @@ try {
     foreach (array_filter(array_map('trim', explode(';', implode("\n", $lines)))) as $sql) {
         $pdo->exec($sql);
     }
+    // The toggle migration (enabled flag + the disabled tech_stack row),
+    // applied the realistic way: through the mysql CLI, like production.
+    $sh("mysql -u root icp_scoring_test < " . escapeshellarg($repo . '/migrations/2026-09-29-icp-tech-stack-toggle.sql'));
+    $tsRow = $pdo->query(
+        "SELECT weight, buyer_locked, enabled FROM icp_dimensions
+         WHERE profile_id = 1 AND dimension_key = 'tech_stack'"
+    )->fetch(\App\PDO::FETCH_ASSOC);
+    check('toggle migration: tech_stack row re-added disabled at weight 0',
+        $tsRow !== false && (int)$tsRow['weight'] === 0
+        && (int)$tsRow['buyer_locked'] === 0 && (int)$tsRow['enabled'] === 0);
+    check('toggle migration: the five core dimensions are enabled',
+        (int)$pdo->query(
+            "SELECT COUNT(*) FROM icp_dimensions
+             WHERE profile_id = 1 AND dimension_key <> 'tech_stack' AND enabled = 1"
+        )->fetchColumn() === 5);
 
     // Defaults when rows are missing: fail-closed, never auto-qualify-all.
     $pdo->exec("DELETE FROM settings WHERE setting_key LIKE 'icp_threshold_%'");
@@ -167,11 +182,15 @@ try {
 
     echo "5. updateWeights() sum-to-100 + audit + buyer lock:\n";
     $good = ['company_size' => 30, 'industry_fit' => 30,
-             'target_title' => 20, 'geography' => 10, 'trigger_signals' => 10];
+             'target_title' => 20, 'geography' => 10, 'trigger_signals' => 10,
+             'tech_stack' => 0];
     IcpProfile::updateWeights(1, $good, 'test edit', 42, true, 'user');
     check('weights persisted', IcpProfile::weights(1) === $good);
+    // Scoped to this edit: the toggle migration above also wrote one audit
+    // row (created_by 'user', sample_size NULL), which must not be counted.
     $hist = $pdo->query("SELECT dimension_key, old_weight, new_weight, reason, sample_size, created_by
-                         FROM icp_weight_history ORDER BY id")->fetchAll(\App\PDO::FETCH_ASSOC);
+                         FROM icp_weight_history WHERE reason = 'test edit' ORDER BY id")
+        ->fetchAll(\App\PDO::FETCH_ASSOC);
     check('one history row per CHANGED dimension (4)',
         count($hist) === 4, 'got ' . count($hist));
     $allUser = true;
@@ -185,11 +204,13 @@ try {
     $locks = $pdo->query("SELECT dimension_key, buyer_locked FROM icp_dimensions WHERE profile_id = 1")
         ->fetchAll(\App\PDO::FETCH_KEY_PAIR);
     check('manual edit marks touched dimensions buyer_locked',
-        count(array_filter($locks)) === 5);
+        count(array_filter($locks)) === 6);
 
     $histCount = count($hist);
     IcpProfile::updateWeights(1, $good, 'no-op edit', null, true, 'user');
-    $hist2 = $pdo->query("SELECT COUNT(*) AS c FROM icp_weight_history")->fetch(\App\PDO::FETCH_ASSOC);
+    $hist2 = $pdo->query(
+        "SELECT COUNT(*) AS c FROM icp_weight_history WHERE reason IN ('test edit', 'no-op edit')"
+    )->fetch(\App\PDO::FETCH_ASSOC);
     check('unchanged vector writes no new history rows',
         (int)$hist2['c'] === $histCount);
 

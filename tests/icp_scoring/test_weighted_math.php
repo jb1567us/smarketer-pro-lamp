@@ -12,11 +12,13 @@
  *      hard-coded 100): weights summing to 60 or 30 still rescale correctly.
  *   4. Degenerate inputs: all-zero weights (no division error, fit 0),
  *      missing weight for a dimension (contributes 0, still scored 1-10),
- *      stray weight key for a retired dimension (ignored — it must never
+ *      stray weight key for an unknown dimension (ignored — it must never
  *      inflate the denominator and dilute scores).
  *   5. 1-10 display conversion, position clamping, confidence = min.
  *   6. Empty-target fallback prose: every dimension's question carries a
- *      documented default target when the buyer has not configured one.
+ *      documented default target when the buyer has not configured one
+ *      (tech_stack's is checked with the dimension explicitly enabled,
+ *      since it is disabled by default).
  *   7. Fit-score rounding at the qualify boundary (74.4 -> 74, 74.5 -> 75).
  *
  * Usage: php tests/icp_scoring/test_weighted_math.php
@@ -93,9 +95,9 @@ check('missing weight key: dimension still scored 10/10 with 100.0 pct',
     $n['dimensions']['trigger_signals'] === 10 && $n['dimension_pcts']['trigger_signals'] === 100.0);
 
 $wStale = array_fill_keys($DIMS, 20);
-$wStale['tech_stack'] = 17; // retired dimension's row left in icp_dimensions
+$wStale['legacy_bogus_dim'] = 17; // unknown weight key: must never dilute
 $n = ScoreLeadFitAction::normalizeJevAnswers(ics_dim_answers(array_fill_keys($DIMS, 9.0)), $wStale, $TH);
-check('stray retired-dimension weight key ignored: fit still 100 (denominator 100, not 117)',
+check('stray unknown-dimension weight key ignored: fit still 100 (denominator 120, not 137)',
     $n['fit_score'] === 100, json_encode($n['fit_score']));
 
 // --- 5. display conversion / clamping / confidence ----------------------------
@@ -156,6 +158,32 @@ check('configured titles render',
     && stripos((string)$qs2['dim_target_title']['instructions'], 'CMO') !== false);
 check('configured trigger signals render',
     stripos((string)$qs2['dim_trigger_signals']['instructions'], 'funding') !== false);
+
+// tech_stack is disabled by default: no question, zero tokens.
+$qsDefault = ScoreLeadFitAction::buildFitQuestions(ics_profile()['dimensions']);
+check('disabled tech_stack gets no question (zero tokens)',
+    !isset($qsDefault['dim_tech_stack']) && count($qsDefault) === 5,
+    'questions: ' . implode(',', array_keys($qsDefault)));
+
+// Enabled explicitly: the question uses the discoverability rubric, not the
+// generic verbatim-match rule, and renders the configured target surface.
+$tsProf = ics_profile();
+$tsProf['dimensions']['tech_stack']['enabled'] = true;
+$tsProf['dimensions']['tech_stack']['weight'] = 20;
+$tsProf['dimensions']['tech_stack']['target_config'] = ['tools' => ['WordPress', 'Shopify']];
+$qsTs = ScoreLeadFitAction::buildFitQuestions($tsProf['dimensions']);
+$tsInstr = (string)($qsTs['dim_tech_stack']['instructions'] ?? '');
+check('enabled tech_stack question uses the discoverability rubric',
+    stripos($tsInstr, 'DISCOVERABILITY') !== false
+    && stripos($tsInstr, '9-10') !== false
+    && stripos($tsInstr, 'nothing discoverable') !== false
+    && stripos($tsInstr, 'never invent evidence') !== false);
+check('enabled tech_stack question renders the configured target surface',
+    stripos($tsInstr, 'WordPress') !== false && stripos($tsInstr, 'Shopify') !== false);
+check('enabled tech_stack question has 10 discoverability levels',
+    count($qsTs['dim_tech_stack']['criteria'] ?? []) === 10
+    && str_starts_with((string)($qsTs['dim_tech_stack']['criteria'][0] ?? ''), '1 —')
+    && stripos((string)($qsTs['dim_tech_stack']['criteria'][0] ?? ''), 'discoverability') !== false);
 
 // --- 7. fit rounding at the qualify boundary --------------------------------------
 echo "7. fit rounding at boundaries:\n";

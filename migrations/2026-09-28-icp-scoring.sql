@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS icp_dimensions (
     dimension_key VARCHAR(48) NOT NULL,
     weight INT NOT NULL DEFAULT 0,
     buyer_locked TINYINT(1) NOT NULL DEFAULT 0,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
     target_config JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -37,9 +38,13 @@ CREATE TABLE IF NOT EXISTS icp_dimensions (
 -- buyer_locked: 1 once a human edits the weight by hand; auto-tuning skips
 -- locked dimensions. The settings UI offers an unlock per dimension.
 -- dimension_key: company_size | industry_fit | target_title | geography |
---                trigger_signals
--- (tech_stack was retired 2026-09-29; lead-enrichment keeps its own
--- tech_stack *field*, which is observed lead data, not a scoring dimension.)
+--                trigger_signals | tech_stack
+-- (tech_stack is the toggleable dimension, OFF by default since 2026-09-29:
+-- see migrations/2026-09-29-icp-tech-stack-toggle.sql. Lead-enrichment keeps
+-- its own tech_stack *field*, which is observed lead data, not a scoring
+-- dimension.)
+-- enabled: 1 = the dimension is scored; 0 = excluded from the scoring prompt
+-- and from aggregation entirely (only meaningful for optional dimensions).
 
 -- Anti-persona: hard veto list. Any match disqualifies the lead outright.
 CREATE TABLE IF NOT EXISTS icp_exclusions (

@@ -16,6 +16,7 @@ use App\Auth;
 use App\Database;
 use App\Icp\IcpProfile;
 use App\PDO;
+use App\Actions\AdjustIcpWeightsAction;
 
 Auth::requireApiAuth();
 
@@ -28,6 +29,10 @@ const ICP_TARGET_SPEC = [
     'target_title'    => ['titles' => 'string_list'],
     'geography'       => ['countries' => 'string_list', 'regions' => 'string_list'],
     'trigger_signals' => ['signals' => 'signal_list'],
+    // tech_stack is the toggleable dimension: the buyer lists the target
+    // technology surface they sell into; when enabled it is scored on
+    // discoverability (how much of that surface was found in the evidence).
+    'tech_stack'      => ['tools' => 'string_list'],
 ];
 
 /** @throws InvalidArgumentException */
@@ -233,6 +238,35 @@ try {
             $key = (string)($data['dimension_key'] ?? '');
             IcpProfile::unlockDimension($profileId, $key);
             jsonOk(['unlocked' => true]);
+            break;
+        }
+
+        // (e) Toggle an optional dimension (today: tech_stack) on/off.
+        // When enabling, the buyer sets its weight in the same call via the
+        // full weights vector; when disabling, its weight is forced to 0.
+        // The dimension is buyer-locked by the toggle, so the auto-tuner
+        // will not move the buyer-chosen weight afterwards.
+        case 'set_dimension_enabled': {
+            $key = (string)($data['dimension_key'] ?? '');
+            $enabled = filter_var(
+                $data['enabled'] ?? null, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE
+            );
+            if ($enabled === null) {
+                jsonFail(400, 'enabled must be true or false.');
+                exit;
+            }
+            $weights = $data['weights'] ?? [];
+            if (!is_array($weights)) {
+                jsonFail(400, 'weights must be an object of dimension => weight.');
+                exit;
+            }
+            $reason = isset($data['reason'])
+                ? substr((string)$data['reason'], 0, 255)
+                : ($enabled ? 'buyer enabled tech_stack dimension' : 'buyer disabled tech_stack dimension');
+            $pdo = Database::getConnection();
+            $result = (new AdjustIcpWeightsAction($pdo))
+                ->setDimensionEnabled($profileId, $key, $enabled, $weights, $reason);
+            jsonOk($result);
             break;
         }
 

@@ -39,10 +39,13 @@ $DIMS = IcpProfile::DIMENSIONS;
 $weights = ics_profile()['weights'];
 $TH = ['qualify' => 75, 'review' => 50];
 $all9 = array_fill_keys($DIMS, 9.0);
+// The fixture models the production default: tech_stack disabled, so the
+// shadow record carries the five enabled dimensions' pcts.
+$enabledFive = ScoreLeadFitAction::enabledKeys(ics_profile()['dimensions']);
 
 // --- 1. shadowExtract() units --------------------------------------------------
 echo "1. shadowExtract():\n";
-$extract = ScoreLeadFitAction::shadowExtract($weights, $TH);
+$extract = ScoreLeadFitAction::shadowExtract($weights, $TH, $enabledFive);
 
 $jv = $extract(ics_dim_answers($all9));
 check('jev answers -> verdict qualified, fit 100, five pcts, source jev',
@@ -119,7 +122,7 @@ $out = DecisionTier::decide(
     ['lead_context' => 'x'],
     ScoreLeadFitAction::buildFitQuestions(ics_profile()['dimensions']),
     $legacy,
-    ScoreLeadFitAction::shadowExtract($weights, $TH),
+    ScoreLeadFitAction::shadowExtract($weights, $TH, $enabledFive),
     ScoreLeadFitAction::shadowAgree($TH)
 );
 check('shadow: legacy result returned unchanged (zero behavior change)', $out === $legacy());
@@ -161,7 +164,7 @@ DecisionTier::decide(
     ['lead_context' => 'x'],
     ScoreLeadFitAction::buildFitQuestions(ics_profile()['dimensions']),
     $legacy95,
-    ScoreLeadFitAction::shadowExtract($weights, $TH),
+    ScoreLeadFitAction::shadowExtract($weights, $TH, $enabledFive),
     ScoreLeadFitAction::shadowAgree($TH)
 );
 $rec2 = null;

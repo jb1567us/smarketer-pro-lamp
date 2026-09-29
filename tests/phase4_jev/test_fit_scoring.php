@@ -5,8 +5,11 @@
  *
  * Covers ScoreLeadFitAction + the QualifyLeadAction rewrite that consumes it.
  * Zero network, zero DB:
- *   1. buildFitQuestions: five batched score questions, 1-10 criteria, each
- *      referencing its dimension's target_config.
+ *   1. buildFitQuestions: one batched score question per ENABLED dimension
+ *      (five for the default-off fixture — tech_stack is toggleable and
+ *      disabled by default), 1-10 criteria, each referencing its dimension's
+ *      target_config; the enabled tech_stack question carries the
+ *      discoverability rubric.
  *   2. Hard veto (industry/company/domain/title/keyword): fit 0, no Jev call.
  *   3. normalizeJevAnswers: 1-10 -> 0-100 per dimension, weighted fit,
  *      threshold bands (qualified / needs_review / unqualified).
@@ -92,12 +95,18 @@ class FitFakePdo extends FakePdo
     }
 }
 
-/** Resolved-profile snapshot (same shape as ScoreLeadFitAction::resolveProfile). */
+/** Resolved-profile snapshot (same shape as ScoreLeadFitAction::resolveProfile).
+ *  Models the production default: tech_stack present but DISABLED. */
 function fitProfile(array $overrides = []): array
 {
     $dims = [];
     foreach (IcpProfile::DIMENSIONS as $d) {
-        $dims[$d] = ['weight' => 20, 'buyer_locked' => false, 'target_config' => []];
+        $dims[$d] = [
+            'weight' => $d === 'tech_stack' ? 0 : 20,
+            'buyer_locked' => false,
+            'enabled' => $d !== 'tech_stack',
+            'target_config' => [],
+        ];
     }
     $base = [
         'id' => 1,
@@ -106,6 +115,7 @@ function fitProfile(array $overrides = []): array
         'weights' => [
             'company_size' => 20, 'industry_fit' => 20,
             'target_title' => 20, 'geography' => 20, 'trigger_signals' => 20,
+            'tech_stack' => 0,
         ],
         'exclusions' => [],
         'thresholds' => ['qualify' => 75, 'review' => 50],
@@ -168,19 +178,25 @@ $legacyFn = fn() => ['qualified' => true, 'score' => 80, 'reason' => 'legacy ver
 $prof = fitProfile();
 $weights = $prof['weights'];
 $thresholds = $prof['thresholds'];
+// The fixture models the production default: tech_stack disabled, so the
+// score() path asks five questions and the shadow record carries five pcts.
+$enabledFive = ScoreLeadFitAction::enabledKeys($prof['dimensions']);
 ScoreLeadFitAction::$profileOverride = $prof;
 
 // --- 1. Question building ----------------------------------------------------
 $qs = ScoreLeadFitAction::buildFitQuestions($prof['dimensions']);
 check('buildFitQuestions emits five batched questions', count($qs) === 5);
 $keysOk = true;
-foreach (IcpProfile::DIMENSIONS as $d) {
+foreach (ScoreLeadFitAction::enabledKeys($prof['dimensions']) as $d) {
     $q = $qs['dim_' . $d] ?? null;
     if (!is_array($q) || ($q['type'] ?? '') !== 'score' || count($q['criteria'] ?? []) !== 10) {
         $keysOk = false;
     }
 }
-check('each dimension gets a 10-level score question', $keysOk);
+check('each enabled dimension gets a 10-level score question', $keysOk);
+// The disabled tech_stack gets no question at all (zero tokens).
+check('disabled tech_stack gets no question',
+    !isset($qs['dim_tech_stack']));
 check('criteria run 1 (worst) to 10 (best)',
     str_starts_with((string)($qs['dim_company_size']['criteria'][0] ?? ''), '1 —')
     && str_starts_with((string)($qs['dim_company_size']['criteria'][9] ?? ''), '10 —'));
@@ -308,7 +324,7 @@ $out = DecisionTier::decide(
     ['lead_context' => 'x'],
     ScoreLeadFitAction::buildFitQuestions($prof['dimensions']),
     $agreeLegacy,
-    ScoreLeadFitAction::shadowExtract($weights, $thresholds),
+    ScoreLeadFitAction::shadowExtract($weights, $thresholds, $enabledFive),
     ScoreLeadFitAction::shadowAgree($thresholds)
 );
 check('shadow: legacy result returned (zero behavior change)', $out === $agreeLegacy());
@@ -344,7 +360,7 @@ DecisionTier::decide(
     ['lead_context' => 'x'],
     ScoreLeadFitAction::buildFitQuestions($prof['dimensions']),
     $disLegacy,
-    ScoreLeadFitAction::shadowExtract($weights, $thresholds),
+    ScoreLeadFitAction::shadowExtract($weights, $thresholds, $enabledFive),
     ScoreLeadFitAction::shadowAgree($thresholds)
 );
 $rec2 = null;
@@ -368,7 +384,7 @@ $answers = DecisionTier::decide(
     ['lead_context' => 'x'],
     ScoreLeadFitAction::buildFitQuestions($prof['dimensions']),
     $legacyFn,
-    ScoreLeadFitAction::shadowExtract($weights, $thresholds),
+    ScoreLeadFitAction::shadowExtract($weights, $thresholds, $enabledFive),
     ScoreLeadFitAction::shadowAgree($thresholds)
 );
 check('live: Jev answers returned, not the legacy fallback',
@@ -385,7 +401,7 @@ $answers = DecisionTier::decide(
     ['lead_context' => 'x'],
     ScoreLeadFitAction::buildFitQuestions($prof['dimensions']),
     $legacyFn,
-    ScoreLeadFitAction::shadowExtract($weights, $thresholds),
+    ScoreLeadFitAction::shadowExtract($weights, $thresholds, $enabledFive),
     ScoreLeadFitAction::shadowAgree($thresholds)
 );
 check('live: low confidence escalates to legacy', $answers === $legacyFn());
@@ -398,7 +414,7 @@ $answers = DecisionTier::decide(
     ['lead_context' => 'x'],
     ScoreLeadFitAction::buildFitQuestions($prof['dimensions']),
     $legacyFn,
-    ScoreLeadFitAction::shadowExtract($weights, $thresholds),
+    ScoreLeadFitAction::shadowExtract($weights, $thresholds, $enabledFive),
     ScoreLeadFitAction::shadowAgree($thresholds)
 );
 check('live: Jev error fails over to legacy', $answers === $legacyFn());

@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS icp_dimensions (
     dimension_key VARCHAR(48) NOT NULL,
     weight INT NOT NULL DEFAULT 0,
     buyer_locked TINYINT(1) NOT NULL DEFAULT 0,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
     target_config JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -323,14 +324,17 @@ CREATE TABLE IF NOT EXISTS icp_weight_history (
 INSERT IGNORE INTO icp_profiles (id, name, pain_statement, is_active)
 VALUES (1, 'Default ICP', '', 1);
 
-INSERT IGNORE INTO icp_dimensions (profile_id, dimension_key, weight, buyer_locked, target_config)
+INSERT IGNORE INTO icp_dimensions (profile_id, dimension_key, weight, buyer_locked, enabled, target_config)
 VALUES
-    (1, 'company_size',   17, 0, '{"min_employees":null,"max_employees":null}'),
-    (1, 'industry_fit',   17, 0, '{"include":[],"exclude":[]}'),
-    (1, 'tech_stack',     17, 0, '{"keywords":[]}'),
-    (1, 'target_title',   17, 0, '{"titles":[]}'),
-    (1, 'geography',      16, 0, '{"countries":[],"regions":[]}'),
-    (1, 'trigger_signals',16, 0, '{"signals":[]}');
+    (1, 'company_size',   20, 0, 1, '{"min_employees":null,"max_employees":null}'),
+    (1, 'industry_fit',   20, 0, 1, '{"include":[],"exclude":[]}'),
+    (1, 'target_title',   20, 0, 1, '{"titles":[]}'),
+    (1, 'geography',      20, 0, 1, '{"countries":[],"regions":[]}'),
+    (1, 'trigger_signals',20, 0, 1, '{"signals":[]}'),
+    -- tech_stack is the toggleable dimension: OFF by default (enabled=0,
+    -- weight 0). The buyer enables it for tech-targeted selling; see
+    -- migrations/2026-09-29-icp-tech-stack-toggle.sql.
+    (1, 'tech_stack',      0, 0, 0, '{"tools":[]}');
 
 INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
     ('icp_threshold_qualify', '75'),

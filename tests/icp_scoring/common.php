@@ -118,12 +118,21 @@ class IcsFakeJev extends \App\Jev\JevProvider
  * Resolved-profile snapshot (same shape as
  * ScoreLeadFitAction::resolveProfile() returns); used with the
  * $profileOverride seam so no test touches the static DB gateway.
+ *
+ * Models the production default: tech_stack is present but DISABLED
+ * (enabled=false, weight 0), so the default-off state scores exactly like
+ * the five-dimension model.
  */
 function ics_profile(array $overrides = []): array
 {
     $dims = [];
     foreach (\App\Icp\IcpProfile::DIMENSIONS as $d) {
-        $dims[$d] = ['weight' => 20, 'buyer_locked' => false, 'target_config' => []];
+        $dims[$d] = [
+            'weight' => $d === 'tech_stack' ? 0 : 20,
+            'buyer_locked' => false,
+            'enabled' => $d !== 'tech_stack',
+            'target_config' => [],
+        ];
     }
     $base = [
         'id' => 1,
@@ -132,6 +141,7 @@ function ics_profile(array $overrides = []): array
         'weights' => [
             'company_size' => 20, 'industry_fit' => 20,
             'target_title' => 20, 'geography' => 20, 'trigger_signals' => 20,
+            'tech_stack' => 0,
         ],
         'exclusions' => [],
         'thresholds' => ['qualify' => 75, 'review' => 50],

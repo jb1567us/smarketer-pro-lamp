@@ -8,6 +8,13 @@
  * 12 leads with this install's own engagement timeline (sequence_events) and
  * per-dimension scores, then exercises the full loop:
  *
+ *   F0. tech_stack retirement migration (2026-09-29-icp-default-weights.sql):
+ *       locked row retired, audit recorded, five dims evened to 20, idempotent.
+ *   F0b. tech_stack toggle migration (2026-09-29-icp-tech-stack-toggle.sql):
+ *       `enabled` flag added, one disabled tech_stack row per profile at
+ *       weight 0, core dims enabled, audit recorded, idempotent, scoring
+ *       stays off.
+ *
  *   F1. adjustment pass: predictive dimension nudged up, sum stays 100,
  *       icp_weight_history row with reason + sample_size + created_by.
  *   F2. buyer_locked dimension is never touched; all-zero-signal dims
@@ -18,6 +25,12 @@
  *       history row with created_by='user'.
  *   F6. fallback path (leads with no Dimensions markers): coarse evidence flags
  *       from lead fields + target_config still drive a sane adjustment.
+ *   F7. setDimensionEnabled() end-to-end: buyer enables tech_stack with a
+ *       full weight vector (weight recorded, buyer-locked, enabled flag
+ *       set, discoverability question appears); disables it again (weight
+ *       forced to 0, scoring off); validation throws before any write on a
+ *       non-toggleable dimension, an enable with weight 0, or a vector
+ *       that does not sum to 100.
  *
  * NOTE on per-dimension scores: subject 2's ScoreLeadFitAction persists them
  * in leads.notes via QualifyLeadAction::notesMarker() as
@@ -156,6 +169,63 @@ try {
     )->fetchColumn();
     ok($auditCount === 1, 'migration idempotent: no duplicate audit row');
     ok(\App\Icp\IcpProfile::weights(1) == $even20, 'migration idempotent: weights unchanged');
+
+    // --- F0b. tech_stack toggle migration ---------------------------------------
+    // Applies migrations/2026-09-29-icp-tech-stack-toggle.sql for real: one
+    // disabled tech_stack row per profile, weight 0, unlocked, audit row
+    // recorded; the five core dimensions are enabled. A second apply changes
+    // nothing. Scoring stays off: the enabled set is still the five cores.
+    echo "F0b. tech_stack toggle migration:\n";
+    $toggleFile = $repo . '/migrations/2026-09-29-icp-tech-stack-toggle.sql';
+    $sh("mysql -u root icp_test < " . escapeshellarg($toggleFile));
+    $tsRows = $pdo->query(
+        "SELECT weight, buyer_locked, enabled FROM icp_dimensions
+         WHERE profile_id = 1 AND dimension_key = 'tech_stack'"
+    )->fetchAll(\App\PDO::FETCH_ASSOC);
+    ok(count($tsRows) === 1, 'exactly one tech_stack row re-added');
+    ok(
+        (int)$tsRows[0]['weight'] === 0 && (int)$tsRows[0]['buyer_locked'] === 0
+        && (int)$tsRows[0]['enabled'] === 0,
+        'tech_stack row disabled at weight 0, unlocked: ' . json_encode($tsRows[0])
+    );
+    ok(
+        (int)$pdo->query(
+            "SELECT COUNT(*) FROM icp_dimensions
+             WHERE profile_id = 1 AND dimension_key <> 'tech_stack' AND enabled = 1"
+        )->fetchColumn() === 5,
+        'five core dimensions enabled'
+    );
+    ok(
+        \App\Actions\ScoreLeadFitAction::enabledKeys(\App\Icp\IcpProfile::dimensions(1))
+            === ['company_size', 'industry_fit', 'target_title', 'geography', 'trigger_signals'],
+        'scoring stays off: enabled set is the five core dimensions'
+    );
+    $toggleAudit = (int)$pdo->query(
+        "SELECT COUNT(*) FROM icp_weight_history
+         WHERE dimension_key = 'tech_stack' AND reason LIKE '%toggleable dimension%'"
+    )->fetchColumn();
+    ok($toggleAudit === 1, 're-add audit row recorded once, got ' . $toggleAudit);
+    // Idempotent: second apply changes nothing, writes no duplicate audit.
+    $sh("mysql -u root icp_test < " . escapeshellarg($toggleFile));
+    ok(
+        (int)$pdo->query(
+            "SELECT COUNT(*) FROM icp_dimensions
+             WHERE profile_id = 1 AND dimension_key = 'tech_stack'"
+        )->fetchColumn() === 1,
+        'toggle migration idempotent: still one tech_stack row'
+    );
+    ok(
+        (int)$pdo->query(
+            "SELECT COUNT(*) FROM icp_weight_history
+             WHERE dimension_key = 'tech_stack' AND reason LIKE '%toggleable dimension%'"
+        )->fetchColumn() === 1,
+        'toggle migration idempotent: no duplicate audit row'
+    );
+    ok(
+        \App\Actions\ScoreLeadFitAction::enabledKeys(\App\Icp\IcpProfile::dimensions(1))
+            === ['company_size', 'industry_fit', 'target_title', 'geography', 'trigger_signals'],
+        'toggle migration idempotent: scoring still off'
+    );
 
     // --- Seed: 12 scored leads --------------------------------------------
     // company_size score correlates with engagement (9/10 -> positive reply,
@@ -324,6 +394,72 @@ try {
         $res['correlations']['trigger_signals'] === null,
         'no-evidence dim has null correlation (no churn)'
     );
+
+    // --- F7. buyer toggle: setDimensionEnabled() ----------------------------------
+    echo "F7. setDimensionEnabled() (tech_stack toggle):\n";
+    $pdo->exec("UPDATE icp_dimensions SET buyer_locked = 0 WHERE profile_id = 1");
+    $enableW = ['company_size' => 15, 'industry_fit' => 15, 'target_title' => 15,
+                'geography' => 15, 'trigger_signals' => 15, 'tech_stack' => 25];
+    $res = $action->setDimensionEnabled(1, 'tech_stack', true, $enableW, 'test enable');
+    ok($res['status'] === 'adjusted' && $res['enabled'] === true, 'enable returns adjusted/enabled');
+    ok(array_sum($res['weights']) === 100 && $res['weights']['tech_stack'] === 25,
+        'enable: full vector persisted, tech_stack 25: ' . json_encode($res['weights']));
+    $tsDim = \App\Icp\IcpProfile::dimensions(1)['tech_stack'];
+    ok($tsDim['enabled'] === true && $tsDim['buyer_locked'] === true,
+        'enable: flag on, buyer-locked (auto-tuner will not move it): ' . json_encode($tsDim));
+    ok(
+        \App\Actions\ScoreLeadFitAction::enabledKeys(\App\Icp\IcpProfile::dimensions(1))
+            === ['company_size', 'industry_fit', 'target_title', 'geography', 'trigger_signals', 'tech_stack'],
+        'enable: six enabled dimensions'
+    );
+    $qsOn = \App\Actions\ScoreLeadFitAction::buildFitQuestions(\App\Icp\IcpProfile::dimensions(1));
+    ok(
+        isset($qsOn['dim_tech_stack'])
+        && stripos((string)$qsOn['dim_tech_stack']['instructions'], 'DISCOVERABILITY') !== false,
+        'enable: discoverability question appears in the prompt'
+    );
+    // Tuner still skips the buyer-locked, enabled tech_stack: lock protects it.
+    $res = $action->run();
+    ok(
+        \App\Icp\IcpProfile::weights(1)['tech_stack'] === 25,
+        'tuner leaves buyer-locked tech_stack weight alone: ' . json_encode(\App\Icp\IcpProfile::weights(1))
+    );
+    // Disable again: weight forced to 0, scoring off, question gone.
+    $disableW = ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+                 'geography' => 20, 'trigger_signals' => 20, 'tech_stack' => 99];
+    $res = $action->setDimensionEnabled(1, 'tech_stack', false, $disableW, 'test disable');
+    ok($res['status'] === 'adjusted' && $res['enabled'] === false, 'disable returns adjusted/disabled');
+    ok($res['weights']['tech_stack'] === 0 && array_sum($res['weights']) === 100,
+        'disable: tech_stack weight forced to 0 (the 99 was not honored)');
+    $tsDim = \App\Icp\IcpProfile::dimensions(1)['tech_stack'];
+    ok($tsDim['enabled'] === false, 'disable: enabled flag off');
+    $qsOff = \App\Actions\ScoreLeadFitAction::buildFitQuestions(\App\Icp\IcpProfile::dimensions(1));
+    ok(!isset($qsOff['dim_tech_stack']) && count($qsOff) === 5,
+        'disable: tech_stack question gone, five questions again');
+    // Validation: everything throws BEFORE any write.
+    $thrown = 0;
+    foreach ([
+        ['geography', true, $enableW, 'non-toggleable dimension'],
+        ['tech_stack', true,
+            ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+             'geography' => 20, 'trigger_signals' => 20, 'tech_stack' => 0],
+            'enable with weight 0'],
+        ['tech_stack', true,
+            ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
+             'geography' => 20, 'trigger_signals' => 20, 'tech_stack' => 20],
+            'vector sums to 120'],
+    ] as [$dk, $en, $w, $label]) {
+        try {
+            $action->setDimensionEnabled(1, $dk, $en, $w, 'must throw');
+        } catch (\InvalidArgumentException $e) {
+            $thrown++;
+        }
+    }
+    ok($thrown === 3, 'toggle validation throws on: ' . 'non-toggleable dim / enable weight 0 / bad sum');
+    ok(\App\Icp\IcpProfile::dimensions(1)['tech_stack']['enabled'] === false,
+        'failed toggles left the disabled state untouched');
+    ok(\App\Icp\IcpProfile::weights(1)['tech_stack'] === 0,
+        'failed toggles left the weight untouched');
 
     echo "  -- test_adjust_weights_integration: {$pass} pass, {$fail} fail\n";
     $exit = $fail === 0 ? 0 : 1;

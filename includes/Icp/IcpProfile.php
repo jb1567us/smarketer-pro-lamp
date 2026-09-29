@@ -17,6 +17,16 @@ namespace App\Icp;
  *  - every weight change writes an icp_weight_history row (fail-closed: the
  *    update rolls back if the audit write fails);
  *  - manual edits mark the dimension buyer_locked so the auto-tuner skips it.
+ *
+ * tech_stack is a TOGGLEABLE dimension (2026-09-29 product decision): it is
+ * OFF by default because enterprise tech stacks are structurally
+ * undiscoverable, but a buyer selling into a tech ecosystem (WordPress,
+ * Shopify, ...) can enable it — when enabled it is scored on DISCOVERABILITY
+ * (how much of the target tech surface was actually found in the evidence),
+ * never on stack "goodness". The enabled flag lives on the icp_dimensions
+ * row (column `enabled`); a disabled dimension is omitted from the scoring
+ * prompt entirely (zero tokens) and excluded from aggregation, so
+ * default-off is mathematically identical to the dimension not existing.
  */
 class IcpProfile
 {
@@ -26,6 +36,7 @@ class IcpProfile
         'target_title',
         'geography',
         'trigger_signals',
+        'tech_stack',
     ];
 
     public const DIMENSION_LABELS = [
@@ -34,7 +45,14 @@ class IcpProfile
         'target_title'    => 'Target title',
         'geography'       => 'Geography',
         'trigger_signals' => 'Trigger signals',
+        'tech_stack'      => 'Tech stack',
     ];
+
+    /**
+     * Dimensions the buyer may enable/disable. Every other dimension is
+     * always scored. Only tech_stack is toggleable today.
+     */
+    public const OPTIONAL_DIMENSIONS = ['tech_stack'];
 
     public const QUALIFY_THRESHOLD_DEFAULT = 75;
     public const REVIEW_THRESHOLD_DEFAULT = 50;
@@ -77,13 +95,17 @@ class IcpProfile
 
     /**
      * Dimensions keyed by dimension_key:
-     * ['company_size' => ['weight'=>17,'buyer_locked'=>0,'target_config'=>[...]], ...]
+     * ['company_size' => ['weight'=>17,'buyer_locked'=>0,'enabled'=>true,'target_config'=>[...]], ...]
+     *
+     * 'enabled' is the toggle flag for optional dimensions (tech_stack):
+     * false means the dimension is excluded from scoring entirely. It is
+     * always true for the five core dimensions.
      */
     public static function dimensions(int $profileId): array
     {
         $pdo = \App\Database::getConnection();
         $stmt = $pdo->prepare(
-            "SELECT dimension_key, weight, buyer_locked, target_config
+            "SELECT dimension_key, weight, buyer_locked, enabled, target_config
              FROM icp_dimensions WHERE profile_id = ?"
         );
         $stmt->execute([$profileId]);
@@ -99,6 +121,7 @@ class IcpProfile
             $out[(string)$row['dimension_key']] = [
                 'weight'        => (int)$row['weight'],
                 'buyer_locked'  => (int)$row['buyer_locked'] === 1,
+                'enabled'       => (int)$row['enabled'] === 1,
                 'target_config' => $config,
             ];
         }
@@ -166,6 +189,11 @@ class IcpProfile
      * int 0-100, and the vector sums to exactly 100. Records one
      * icp_weight_history row per changed dimension and marks touched
      * dimensions buyer_locked when $buyerSet is true (manual UI edit).
+     *
+     * Note: the vector covers ALL known dimensions, including disabled
+     * optional ones — with tech_stack off by default that means
+     * 20/20/20/20/20/0. The enabled flag (not weight 0) is what excludes a
+     * dimension from scoring; see setDimensionEnabled().
      *
      * @param array<string,int> $weights dimension_key => weight
      * @throws \InvalidArgumentException on validation failure (no writes).
@@ -263,15 +291,66 @@ class IcpProfile
      */
     public static function unlockDimension(int $profileId, string $dimensionKey): void
     {
+        self::setDimensionLock($profileId, $dimensionKey, false);
+    }
+
+    /**
+     * Set the buyer lock on one dimension (auto-tuner will skip it).
+     */
+    public static function lockDimension(int $profileId, string $dimensionKey): void
+    {
+        self::setDimensionLock($profileId, $dimensionKey, true);
+    }
+
+    private static function setDimensionLock(int $profileId, string $dimensionKey, bool $locked): void
+    {
         if (!in_array($dimensionKey, self::DIMENSIONS, true)) {
             throw new \InvalidArgumentException("Unknown ICP dimension: {$dimensionKey}");
         }
         $pdo = \App\Database::getConnection();
         $stmt = $pdo->prepare(
-            "UPDATE icp_dimensions SET buyer_locked = 0
+            "UPDATE icp_dimensions SET buyer_locked = ?
              WHERE profile_id = ? AND dimension_key = ?"
         );
-        $stmt->execute([$profileId, $dimensionKey]);
+        $stmt->execute([$locked ? 1 : 0, $profileId, $dimensionKey]);
+    }
+
+    /**
+     * Flip the enabled flag on a toggleable (optional) dimension.
+     *
+     * Only dimensions in OPTIONAL_DIMENSIONS may be toggled — the five core
+     * dimensions are always scored. Weight/vector consistency is the caller's
+     * job (see AdjustIcpWeightsAction::setDimensionEnabled): a disabled
+     * dimension MUST carry weight 0, an enabled one weight >= 1. Scoring
+     * ignores disabled dimensions entirely, so either degraded state is
+     * fail-safe.
+     */
+    public static function setDimensionEnabled(int $profileId, string $dimensionKey, bool $enabled): void
+    {
+        if (!in_array($dimensionKey, self::OPTIONAL_DIMENSIONS, true)) {
+            throw new \InvalidArgumentException(
+                "Dimension '{$dimensionKey}' is not toggleable; only "
+                . implode(', ', self::OPTIONAL_DIMENSIONS) . ' may be enabled/disabled.'
+            );
+        }
+        $pdo = \App\Database::getConnection();
+        $exists = $pdo->prepare(
+            "SELECT 1 FROM icp_dimensions WHERE profile_id = ? AND dimension_key = ?"
+        );
+        $exists->execute([$profileId, $dimensionKey]);
+        if ($exists->fetchColumn() === false) {
+            throw new \InvalidArgumentException(
+                "ICP profile {$profileId} has no '{$dimensionKey}' dimension row."
+            );
+        }
+        $stmt = $pdo->prepare(
+            "UPDATE icp_dimensions SET enabled = ?
+             WHERE profile_id = ? AND dimension_key = ?"
+        );
+        $stmt->execute([$enabled ? 1 : 0, $profileId, $dimensionKey]);
+        // No rowCount() check: MySQL reports 0 affected rows when the flag
+        // already holds the target value, and re-applying the same toggle
+        // state must be a harmless no-op, not an error.
     }
 
     /**
