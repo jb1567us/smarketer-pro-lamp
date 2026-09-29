@@ -441,6 +441,9 @@ class ScoreLeadFitAction extends AbstractAction
                 'When the context directly matches the stated target (a named item on the target list, ' .
                 'a value inside the target range, an explicitly stated trigger), score 8-10: ' .
                 'direct matches ARE strong evidence. ' .
+                'In particular: if the lead context names an item from the target list word-for-word ' .
+                '(or an obvious variant of it, e.g. "Salesforce CRM" for Salesforce), that dimension ' .
+                'scores 9 or 10 — never 7 or below for a verbatim match. ' .
                 'Score 4-7 when the evidence is partial, indirect, or merely suggestive. ' .
                 'Score 2-3 when the evidence is thin or ambiguous. ' .
                 'Answer 1 only when there is no evidence at all for this dimension.',
