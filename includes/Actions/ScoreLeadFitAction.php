@@ -36,7 +36,14 @@ use App\Jev\JevProvider;
  *                 which extend the existing shadow record). Zero behavior change.
  *        live   — the Jev weighted result is returned. Jev error, timeout, or
  *                 sub-threshold confidence falls back to the legacy result
- *                 (fail-closed to the existing behavior).
+ *                 (fail-closed to the existing behavior). In live mode this
+ *                 decision point uses PER-DIMENSION ABSTENTION: a dimension
+ *                 below jev_min_confidence is excluded (its weight
+ *                 renormalizes across the scored dimensions) instead of
+ *                 vetoing the whole verdict; zero confident dimensions or
+ *                 below the 60% coverage floor falls back to legacy
+ *                 (fail-closed). The other ten decision points keep the
+ *                 all-or-nothing confidence veto.
  *
  * The legacy fallback is injected as a callable so this action never
  * duplicates the legacy qualification logic — QualifyLeadAction owns it.
@@ -53,6 +60,14 @@ class ScoreLeadFitAction extends AbstractAction
      * hangs waiting for the decision API.
      */
     public const JEV_TIMEOUT_SECONDS = 20;
+
+    /**
+     * Minimum fraction of the enabled weight that must score confidently for
+     * the Jev verdict to stand; below it score() fails closed to the legacy
+     * path. 0.6 = at most ~2 of the 5 default dimensions may abstain.
+     * A system safety constant, not buyer-configurable (like the veto).
+     */
+    private const MIN_COVERAGE_FRACTION = 0.6;
 
     /**
      * Test seam for profile resolution (tests must not hit the static DB).
@@ -90,9 +105,11 @@ class ScoreLeadFitAction extends AbstractAction
      *
      * @return array{qualified:bool,verdict:string,fit_score:int,score:int,
      *               dimensions:array<string,int>,dimension_pcts:array<string,float>,
-     *               reason:string,source:string,veto:?array,latency_ms:int,profile:string}
+     *               abstained:array<string>,reason:string,source:string,veto:?array,
+     *               latency_ms:int,profile:string}
      *   verdict: 'qualified' | 'needs_review' | 'unqualified'
      *   source:  'jev' | 'veto' | 'legacy'
+     *   abstained: enabled dimensions skipped for low confidence (jev source only)
      */
     public function score(array $lead, callable $legacyFallback, ?array $profileSnapshot = null): array
     {
@@ -157,7 +174,8 @@ class ScoreLeadFitAction extends AbstractAction
                 $legacyFallback,
                 $extract,
                 $agree,
-                self::JEV_TIMEOUT_SECONDS
+                self::JEV_TIMEOUT_SECONDS,
+                true // per-dimension abstention: this decision point only
             );
         } catch (\Throwable $e) {
             // Belt-and-braces: DecisionTier already fails over internally;
@@ -168,8 +186,27 @@ class ScoreLeadFitAction extends AbstractAction
         $latencyMs = (int)((microtime(true) - $t0) * 1000);
 
         if (self::isJevFitAnswers($raw, $enabled)) {
-            $norm = self::normalizeJevAnswers($raw, $weights, $thresholds, $enabled);
-            $norm['reason'] = self::jevReason($norm, $profile, $enabled);
+            // Per-dimension abstention (this decision point only): answers
+            // flagged by DecisionTier::markAbstentions are excluded and the
+            // remaining weights renormalize — treated exactly like disabled
+            // dimensions. Fail-closed ordering: the hard veto already fired
+            // above; provider throw and mode off/shadow already fell back to
+            // legacy inside decide(); zero confident dimensions or below the
+            // 60% coverage floor escalates to legacy here.
+            $abstained = self::abstainedDims($raw, $enabled);
+            if (!self::abstentionCoverageOk($weights, $enabled, $abstained)) {
+                error_log('[ScoreLeadFitAction] Abstention coverage below floor; using legacy path.');
+                $legacy = self::normalizeLegacy(
+                    self::safeLegacy($legacyFallback),
+                    '(insufficient confident evidence)',
+                    $thresholds
+                );
+                $legacy['latency_ms'] = $latencyMs;
+                $legacy['profile'] = $profile['key'];
+                return $legacy;
+            }
+            $norm = self::normalizeJevAnswers($raw, $weights, $thresholds, $enabled, $abstained);
+            $norm['reason'] = self::jevReason($norm, $profile, $enabled, $abstained);
             $norm['veto'] = null;
             $norm['latency_ms'] = $latencyMs;
             $norm['profile'] = $profile['key'];
@@ -658,35 +695,48 @@ class ScoreLeadFitAction extends AbstractAction
      * Convert the raw Jev score answers into the weighted result.
      * Each answer's position (0..9) becomes 0-100 via scoreToPercent() and a
      * 1-10 display score; the fit score is the weight-weighted sum over the
-     * ENABLED dimensions only, renormalized so the enabled weights sum to
-     * 100. A disabled dimension's weight can never dilute the score — with
-     * the default-off profile (five dims x 20) this is exactly the
-     * five-dimension model.
+     * SCORED dimensions (enabled minus abstained), renormalized so the scored
+     * weights sum to 100. An abstained dimension is treated exactly like a
+     * disabled one — a disabled dimension's weight can never dilute the
+     * score — with the default-off profile (five dims x 20) this is exactly
+     * the five-dimension model.
      *
      * @param array<string,int> $weights dimension key => weight (0-100)
      * @param string[]|null $enabledDims enabled dimension keys; null = all
      *   IcpProfile::DIMENSIONS (the maximal interpretation).
+     * @param string[]|null $abstainedDims enabled keys flagged as abstained
+     *   (low confidence); null = none abstain (backward compatible).
      * @return array{qualified:bool,verdict:string,fit_score:int,dimensions:array<string,int>,
-     *               dimension_pcts:array<string,float>,confidence:float,source:string}
+     *               dimension_pcts:array<string,float>,confidence:float,abstained:array<string>,
+     *               source:string}
      */
     public static function normalizeJevAnswers(
         array $answers,
         array $weights,
         array $thresholds,
-        ?array $enabledDims = null
+        ?array $enabledDims = null,
+        ?array $abstainedDims = null
     ): array {
         $enabled = $enabledDims ?? IcpProfile::DIMENSIONS;
+        $abstained = array_fill_keys($abstainedDims ?? [], true);
+        // Abstained dimensions are excluded from every accumulation below;
+        // the remaining weights renormalize to 100 at scoring time.
+        $scored = array_values(array_filter(
+            $enabled,
+            fn(string $k): bool => !isset($abstained[$k])
+        ));
         $dimensions = [];
         $pcts = [];
         $confidences = [];
-        // Belt-and-braces: weight keys for dimensions outside the enabled
-        // set (unknown keys, or a stale row for a disabled dimension) must
-        // never inflate the denominator and dilute every score.
-        $weights = array_intersect_key($weights, array_fill_keys($enabled, true));
+        // Belt-and-braces: weight keys for dimensions outside the scored
+        // set (unknown keys, a stale row for a disabled dimension, or an
+        // abstained one) must never inflate the denominator and dilute
+        // every score.
+        $weights = array_intersect_key($weights, array_fill_keys($scored, true));
         $weightSum = max(1, (int)array_sum($weights));
         $fitAccum = 0.0;
 
-        foreach ($enabled as $dimKey) {
+        foreach ($scored as $dimKey) {
             $ans = $answers['dim_' . $dimKey] ?? [];
             $position = (float)($ans['score'] ?? 0.0);
             $position = max(0.0, min(9.0, $position)); // clamp to the 10-level spectrum
@@ -713,8 +763,51 @@ class ScoreLeadFitAction extends AbstractAction
             'dimensions' => $dimensions,
             'dimension_pcts' => $pcts,
             'confidence' => $confidences === [] ? 1.0 : min($confidences),
+            'abstained' => array_values($abstainedDims ?? []),
             'source' => 'jev',
         ];
+    }
+
+    /**
+     * Enabled dimension keys flagged as abstained in the marked Jev answers.
+     * Pure: no DB, no config — safe for unit tests.
+     *
+     * @param array<string,mixed> $answers raw answers (with 'abstained' flags)
+     * @param string[] $enabledDims enabled dimension keys, canonical order
+     * @return string[] abstained keys, in $enabledDims order
+     */
+    public static function abstainedDims(array $answers, array $enabledDims): array
+    {
+        $out = [];
+        foreach ($enabledDims as $dimKey) {
+            $ans = $answers['dim_' . $dimKey] ?? null;
+            if (is_array($ans) && !empty($ans['abstained'])) {
+                $out[] = $dimKey;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Coverage floor for the Jev verdict: the confidently-scored weight must
+     * be a positive amount and at least MIN_COVERAGE_FRACTION of the enabled
+     * weight, else the caller fails closed to the legacy path. Pure: no DB,
+     * no config — safe for unit tests.
+     *
+     * @param array<string,int> $weights dimension key => weight (0-100)
+     * @param string[] $enabledDims enabled dimension keys
+     * @param string[] $abstainedDims abstained keys (from abstainedDims())
+     */
+    public static function abstentionCoverageOk(
+        array $weights,
+        array $enabledDims,
+        array $abstainedDims
+    ): bool {
+        $totalWeight = (int)array_sum(array_intersect_key($weights, array_fill_keys($enabledDims, true)));
+        $abstainedWeight = (int)array_sum(array_intersect_key($weights, array_fill_keys($abstainedDims, true)));
+        $scoredWeight = $totalWeight - $abstainedWeight;
+        return $scoredWeight > 0
+            && $scoredWeight >= self::MIN_COVERAGE_FRACTION * $totalWeight;
     }
 
     /**
@@ -748,10 +841,21 @@ class ScoreLeadFitAction extends AbstractAction
         ];
     }
 
-    private static function jevReason(array $norm, array $profile, ?array $enabledDims = null): string
+    /**
+     * Human-readable reason for the Jev result. Abstained dimensions are
+     * named in their own sentence (they were skipped, not judged with 0/10),
+     * so the review queue shows what was judged and what was skipped.
+     *
+     * @param string[]|null $abstainedDims abstained keys; null = none (backward compatible)
+     */
+    private static function jevReason(array $norm, array $profile, ?array $enabledDims = null, ?array $abstainedDims = null): string
     {
+        $abstained = array_fill_keys($abstainedDims ?? [], true);
         $parts = [];
         foreach ($enabledDims ?? IcpProfile::DIMENSIONS as $dimKey) {
+            if (isset($abstained[$dimKey])) {
+                continue; // skipped, not judged — named in the sentence below
+            }
             $parts[] = $dimKey . '=' . ($norm['dimensions'][$dimKey] ?? 0) . '/10';
         }
         $verdictLabel = [
@@ -759,7 +863,7 @@ class ScoreLeadFitAction extends AbstractAction
             'needs_review' => 'needs human review',
             'unqualified' => 'not qualified',
         ][$norm['verdict']] ?? $norm['verdict'];
-        return sprintf(
+        $reason = sprintf(
             'Jev weighted ICP fit %d/100 (profile "%s", confidence %.2f) — %s. %s.',
             $norm['fit_score'],
             $profile['key'],
@@ -767,6 +871,10 @@ class ScoreLeadFitAction extends AbstractAction
             $verdictLabel,
             implode(', ', $parts)
         );
+        if ($abstainedDims !== null && $abstainedDims !== []) {
+            $reason .= ' Abstained (insufficient evidence): ' . implode(', ', $abstainedDims) . '.';
+        }
+        return $reason;
     }
 
     /**
