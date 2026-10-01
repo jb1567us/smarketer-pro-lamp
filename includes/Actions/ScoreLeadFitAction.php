@@ -106,10 +106,16 @@ class ScoreLeadFitAction extends AbstractAction
      * @return array{qualified:bool,verdict:string,fit_score:int,score:int,
      *               dimensions:array<string,int>,dimension_pcts:array<string,float>,
      *               abstained:array<string>,reason:string,source:string,veto:?array,
-     *               latency_ms:int,profile:string}
+     *               latency_ms:int,profile:string,
+     *               snapshot_id:?int,evidence_set_hash:?string}
      *   verdict: 'qualified' | 'needs_review' | 'unqualified'
      *   source:  'jev' | 'veto' | 'legacy'
      *   abstained: enabled dimensions skipped for low confidence (jev source only)
+     *   snapshot_id / evidence_set_hash: the P4 pin — the immutable profile
+     *     snapshot the run saw and the hash over that state plus the lead
+     *     inputs consumed. Null when no profile resolved (legacy-only run)
+     *     or the snapshot store was unavailable; the pin is observability,
+     *     never load-bearing.
      */
     public function score(array $lead, callable $legacyFallback, ?array $profileSnapshot = null): array
     {
@@ -123,18 +129,36 @@ class ScoreLeadFitAction extends AbstractAction
             $profile = self::resolveProfile();
         }
 
+        // --- 0. Pin the run FIRST (P4): capture an immutable snapshot of the
+        //      live profile state before anything is scored, so "what did
+        //      this run see?" is auditable forever (run-6 phantom-config
+        //      lesson). Fixtures carry no 'from_live' marker and never
+        //      capture; a repointed run already carries 'snapshot_id' and
+        //      only recomputes the evidence hash against THIS lead's inputs.
+        if ($profile !== null && !isset($profile['snapshot_id']) && !empty($profile['from_live'])) {
+            $pinned = \App\Icp\IcpProfileSnapshot::capture((int)$profile['id'], $lead);
+            if ($pinned !== null) {
+                $profile = $pinned;
+            }
+        } elseif (is_array($profile) && isset($profile['snapshot_id'])) {
+            $profile['evidence_set_hash'] = \App\Icp\IcpProfileSnapshot::evidenceSetHash(
+                (string)$profile['content_hash'],
+                $lead
+            );
+        }
+
         // --- 1. Hard veto first: no Jev call needed on a hit ----------------
         if ($profile !== null) {
             $veto = self::findVeto($lead, $profile['exclusions']);
             if ($veto !== null) {
-                return self::vetoResult($lead, $veto, $profile);
+                return self::withPin(self::vetoResult($lead, $veto, $profile), $profile);
             }
         }
 
         // --- 2. No usable profile -> legacy only (fail-closed) --------------
         if ($profile === null) {
             $legacy = self::safeLegacy($legacyFallback);
-            return self::normalizeLegacy($legacy, '(no active ICP profile)');
+            return self::withPin(self::normalizeLegacy($legacy, '(no active ICP profile)'), null);
         }
 
         $weights = $profile['weights'];
@@ -203,7 +227,7 @@ class ScoreLeadFitAction extends AbstractAction
                 );
                 $legacy['latency_ms'] = $latencyMs;
                 $legacy['profile'] = $profile['key'];
-                return $legacy;
+                return self::withPin($legacy, $profile);
             }
             $norm = self::normalizeJevAnswers($raw, $weights, $thresholds, $enabled, $abstained);
             $norm['reason'] = self::jevReason($norm, $profile, $enabled, $abstained);
@@ -213,13 +237,57 @@ class ScoreLeadFitAction extends AbstractAction
             $norm['thresholds'] = $thresholds;
             // 'score' aliases fit_score for legacy-shape compatibility.
             $norm['score'] = $norm['fit_score'];
-            return $norm;
+            return self::withPin($norm, $profile);
         }
 
         $legacy = self::normalizeLegacy(is_array($raw) ? $raw : [], '', $thresholds);
         $legacy['latency_ms'] = $latencyMs;
         $legacy['profile'] = $profile['key'];
-        return $legacy;
+        return self::withPin($legacy, $profile);
+    }
+
+    /**
+     * Re-execute a scoring run against a named earlier profile snapshot
+     * (P4 rollback = repoint). The run reproduces the original run's
+     * scoring inputs exactly — dimensions, weights, thresholds, enabled
+     * flags, target_configs, exclusions as the snapshot captured them —
+     * while the pin it carries is the ORIGINAL snapshot id and the
+     * evidence_set_hash recomputed against the supplied lead's inputs.
+     * Re-running the same lead therefore yields the same evidence hash
+     * (rollback equality); a changed lead yields a different one.
+     *
+     * Never inserts a human into the determination path: the snapshot is
+     * scoring inputs, not a gate. Fail-loud on an unknown snapshot id —
+     * repointing at a nonexistent snapshot is a caller bug, not something
+     * to degrade silently.
+     *
+     * @throws \InvalidArgumentException when the snapshot id is unknown.
+     */
+    public function scoreWithSnapshot(array $lead, callable $legacyFallback, int $snapshotId): array
+    {
+        $row = \App\Icp\IcpProfileSnapshot::get($snapshotId);
+        if ($row === null) {
+            throw new \InvalidArgumentException("Unknown ICP profile snapshot {$snapshotId}.");
+        }
+        $profile = \App\Icp\IcpProfileSnapshot::restoredProfile($row);
+        if ($profile === null) {
+            throw new \InvalidArgumentException(
+                "ICP profile snapshot {$snapshotId} is unreadable (corrupt payload)."
+            );
+        }
+        return $this->score($lead, $legacyFallback, $profile);
+    }
+
+    /**
+     * Attach the P4 run pin to a scoring result. The pin is observability,
+     * never load-bearing: a missing profile or an unavailable snapshot
+     * store yields nulls, and scoring proceeds exactly as before P4.
+     */
+    private static function withPin(array $result, ?array $profile): array
+    {
+        $result['snapshot_id'] = $profile['snapshot_id'] ?? null;
+        $result['evidence_set_hash'] = $profile['evidence_set_hash'] ?? null;
+        return $result;
     }
 
     // ------------------------------------------------------------------
@@ -233,7 +301,8 @@ class ScoreLeadFitAction extends AbstractAction
      * legacy path. Never throws.
      *
      * @return array{id:int,key:string,dimensions:array,weights:array<string,int>,
-     *               exclusions:array,thresholds:array{qualify:int,review:int}}|null
+     *               exclusions:array,thresholds:array{qualify:int,review:int},
+     *               from_live:bool}|null
      */
     public static function resolveProfile(): ?array
     {
@@ -263,6 +332,11 @@ class ScoreLeadFitAction extends AbstractAction
                 'weights' => $weights,
                 'exclusions' => IcpProfile::exclusions($profileId),
                 'thresholds' => IcpProfile::thresholds(),
+                // Marker for the P4 snapshot pin: this profile was resolved
+                // from live DB state, so score() captures an immutable
+                // snapshot of it before scoring. Fixtures / repointed
+                // snapshots (arrays WITHOUT this key) never capture.
+                'from_live' => true,
             ];
         } catch (\Throwable $e) {
             // Missing tables, bad connection, corrupt config — fail closed to

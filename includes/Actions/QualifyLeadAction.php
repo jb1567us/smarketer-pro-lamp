@@ -68,6 +68,13 @@ class QualifyLeadAction extends AbstractAction
         $stmt = $this->pdo->prepare("UPDATE leads SET lead_score = ?, status = ?, notes = ? WHERE id = ?");
         $stmt->execute([$score, $status, $newNotes, $leadId]);
 
+        // P4: pin the run on the run record — the scoring result carries
+        // (profile_snapshot_id, evidence_set_hash); persist it so "what did
+        // this run see?" stays auditable after the profile moves on.
+        // Fail-safe: a missing table or write failure must never break
+        // qualification (the pin is observability, never load-bearing).
+        \App\Icp\IcpProfileSnapshot::recordRun($this->pdo, $leadId, $result);
+
         return true;
     }
 

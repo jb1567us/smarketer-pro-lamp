@@ -14,6 +14,7 @@ $repo = dirname(__DIR__, 2);
 
 $lintFiles = [
     $repo . '/includes/Icp/IcpProfile.php',
+    $repo . '/includes/Icp/IcpProfileSnapshot.php',
     $repo . '/includes/Actions/ScoreLeadFitAction.php',
     $repo . '/includes/Actions/QualifyLeadAction.php',
     $repo . '/includes/Actions/AdjustIcpWeightsAction.php',
@@ -28,6 +29,7 @@ $testFiles = [
     'test_shadow_contract.php'   => 'per-dimension shadow extraction + JSONL shape + agreement rule',
     'test_feedback_math.php'     => 'feedback-loop math (nudge clamp, renormalization, floor, locks, reset, cron gate)',
     'test_api_contract.php'      => 'api/icp.php auth/CSRF/action allowlist (static)',
+    'test_profile_snapshots.php' => 'P4 immutable profile snapshots + run pins + repoint-rollback (scratch DB)',
 ];
 
 $php = PHP_BINARY;
