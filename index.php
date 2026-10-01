@@ -364,7 +364,7 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="grid grid-cols-2 gap-4">
                             <div class="space-y-1.5">
                                 <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Model</label>
-                                <input type="text" id="setting-jev_model" placeholder="jev-1.13" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                                <input type="text" id="setting-jev_model" placeholder="jev-latest" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
                             </div>
                             <div class="space-y-1.5">
                                 <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Min Confidence (live mode)</label>
