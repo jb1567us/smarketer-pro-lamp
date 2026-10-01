@@ -5,8 +5,8 @@
  * goal_67693fcbba4c).
  *
  * Zero network. The routing half is pure statics; the data-model half uses a
- * scratch MariaDB (config/db.php swapped and restored, same pattern as
- * tests/icp/test_adjust_weights_integration.php):
+ * scratch MariaDB (scratch credentials via tests/support/db_env.php, same
+ * pattern as tests/icp/test_adjust_weights_integration.php):
  *   1. Boundary routing: fit 75 -> qualified, 74/50 -> needs_review,
  *      49 -> unqualified (single-dimension weights for exact control).
  *   2. Custom thresholds honored by normalizeJevAnswers.
@@ -24,7 +24,7 @@
  *      validation.
  *
  * Usage: php tests/icp_scoring/test_threshold_routing.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
@@ -107,14 +107,12 @@ echo "4. IcpProfile::thresholds() fail-closed clamping (scratch DB):\n";
 
 $repo = ics_repo_root();
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 $dbExit = 0;
 
 try {
     $dbUser = 'icp_scoring_test';
-    $dbPass = 'icp_scoring_pw_9q2';
+    $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) {
@@ -126,7 +124,7 @@ try {
     if (!is_dir($configDir)) {
         mkdir($configDir, 0755, true);
     }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'icp_scoring_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'icp_scoring_test', $dbUser, $dbPass);
 
     $pdo = \App\Database::getConnection();
     $pdo->exec("CREATE TABLE settings (
@@ -308,11 +306,8 @@ try {
 }
 
 // --- Restore the repo tree exactly as it was --------------------------------
-if ($hadConfig) {
-    file_put_contents($configFile, $backup);
-} elseif (is_file($configFile)) {
-    unlink($configFile);
-}
+// --- Drop the scratch credentials from the process environment ----
+test_db_restore_env();
 
 ics_assert_default_mode_live('(end)');
 $code = ics_summary('test_threshold_routing.php');

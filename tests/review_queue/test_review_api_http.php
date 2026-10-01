@@ -4,7 +4,7 @@
  * Review API HTTP tests (goal_67693fcbba4c, review workflow).
  *
  * Spins up PHP's built-in web server against the repo tree with a scratch
- * MariaDB + temporary config/db.php + temporary config/auth.php, then
+ * MariaDB (credentials via DB_* env vars) + temporary config/auth.php, then
  * exercises api/review.php over real HTTP (via the curl CLI):
  *
  *   H1. unauthenticated GET list            -> 401 (auth before input)
@@ -24,17 +24,15 @@
  *  H14. logout                              -> API is 401 again afterwards
  *
  * Usage: php tests/review_queue/test_review_api_http.php
- * The repo tree is left exactly as it was (config/db.php and
- * config/auth.php restored/removed; scratch DB dropped).
+ * The repo tree is left exactly as it was (scratch DB creds dropped from
+ * env; config/auth.php restored/removed; scratch DB dropped).
  */
 declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$dbFile = $configDir . '/db.php';
 $authFile = $configDir . '/auth.php';
-$hadDb = is_file($dbFile);
-$dbBackup = $hadDb ? file_get_contents($dbFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 $hadAuth = is_file($authFile);
 $authBackup = $hadAuth ? file_get_contents($authFile) : null;
 // saveCredentials() also writes config/.htaccess, and login attempts write
@@ -62,7 +60,7 @@ $server = null;
 $jar = tempnam(sys_get_temp_dir(), 'rqjar');
 try {
     $dbUser = 'review_http';
-    $dbPass = 'review_http_pw_2z8';
+    $dbPass = 't_' . bin2hex(random_bytes(8));
     $dbName = 'review_http_test';
     $sh = function (string $cmd): string {
         exec($cmd . ' 2>&1', $out, $code);
@@ -72,10 +70,10 @@ try {
         return implode("\n", $out);
     };
     $sh("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; CREATE DATABASE {$dbName} CHARACTER SET utf8mb4;\"");
-    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%';\"");
-    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
+    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%';\"");
+    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
-    file_put_contents($dbFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => '{$dbName}', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', $dbName, $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -299,11 +297,7 @@ try {
     if (is_file($jar)) {
         unlink($jar);
     }
-    if ($hadDb) {
-        file_put_contents($dbFile, $dbBackup);
-    } elseif (is_file($dbFile)) {
-        unlink($dbFile);
-    }
+    test_db_restore_env();
     if ($hadAuth) {
         file_put_contents($authFile, $authBackup);
     } elseif (is_file($authFile)) {

@@ -19,7 +19,7 @@
  * Zero network, zero real sends (no send worker runs here), zero LLM.
  *
  * Usage: php tests/needs_review/test_state_transitions.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
@@ -72,7 +72,7 @@ function nr_expect_review_throw(callable $fn, string $needle, string $name): voi
 }
 
 try {
-    $pdo = nr_scratch_db('nr_transitions', 'nr_test', 'nr_test_pw_4x8');
+    $pdo = nr_scratch_db('nr_transitions', 'nr_test', 't_' . bin2hex(random_bytes(8)));
     nr_transition_schema($pdo);
     $ids = nr_seed_fixtures($pdo);
     // Assign all three fixtures to the campaign.
@@ -119,7 +119,7 @@ try {
 
 // --- Part B: review-workflow enforcement (App\ReviewQueue) --------------------
 try {
-    $pdoB = nr_scratch_db('nr_review_api', 'nr_test', 'nr_test_pw_4x8');
+    $pdoB = nr_scratch_db('nr_review_api', 'nr_test', 't_' . bin2hex(random_bytes(8)));
     $pdoB->exec(nr_leads_table_ddl());
     nr_apply_migration($pdoB, nr_repo_root() . '/migrations/2026-09-28-review-decisions.sql');
     $idsB = nr_seed_fixtures($pdoB);

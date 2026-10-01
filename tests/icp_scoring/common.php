@@ -6,8 +6,9 @@
  * Conventions (same as tests/phase4_jev and tests/phase3): each test file
  * requires this file, then the repo autoloader, then runs its checks in its
  * own PHP process (see run_icp_scoring_tests.php). Zero network; a scratch
- * MariaDB is used only where explicitly noted (config/db.php swapped and
- * restored, same as tests/icp/test_adjust_weights_integration.php).
+ * MariaDB is used only where explicitly noted (DB_* env vars set via
+ * tests/support/db_env.php — the repo tree is never touched, same as
+ * tests/icp/test_adjust_weights_integration.php).
  *
  * Shadow-first invariant: no test in this suite persists a 'live' default
  * anywhere. DecisionTier modes are only ever injected per-process via

@@ -10,7 +10,7 @@
  * QualifyLeadAction::notesMarker() code path.
  *
  * Usage: php tests/needs_review/test_fixtures.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
@@ -19,7 +19,7 @@ require nr_repo_root() . '/includes/autoload.php';
 require __DIR__ . '/fixtures.php';
 
 try {
-    $pdo = nr_scratch_db('nr_fixtures', 'nr_test', 'nr_test_pw_4x8');
+    $pdo = nr_scratch_db('nr_fixtures', 'nr_test', 't_' . bin2hex(random_bytes(8)));
 
     // --- DDL ----------------------------------------------------------------
     $pdo->exec(nr_leads_table_ddl());

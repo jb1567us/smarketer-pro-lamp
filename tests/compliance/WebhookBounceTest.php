@@ -8,7 +8,7 @@
  * Everything under test is pure or takes injected fakes: WebhookAuth is
  * exercised through its pure helpers (secrets passed as arguments), and
  * BounceHandler::handle() gets a stub suppress callback. The DB write paths
- * (webhook_events / email_logs) fail fast here (no config/db.php, env
+ * (webhook_events / email_logs) fail fast here (no DB credentials in env,
  * cleared below) and are swallowed by design, so the assertions stay green.
  * The MariaDB-backed behavior (real inserts) is covered by the coordinator's
  * integration suite.

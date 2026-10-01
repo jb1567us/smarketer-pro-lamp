@@ -23,7 +23,7 @@ $tmp = sys_get_temp_dir() . '/queue_stress';
 @mkdir($tmp, 0777, true);
 
 $dbHost = '127.0.0.1'; $dbName = 'queue_stress';
-$dbUser = 'queue_test'; $dbPass = 'queue_test_pw_9f2';
+$dbUser = 'queue_test'; $dbPass = 't_' . bin2hex(random_bytes(8));
 
 function sh(string $cmd): array {
     $out = []; $code = 0;
@@ -37,20 +37,8 @@ function check(string $name, bool $cond): bool {
 $ok = true;
 
 // --- 0. Prepare scratch DB ------------------------------------------------
-// Database::credentials() prefers config/db.php over the environment, so a
-// committed config would shadow the DB_* env vars below. Stash it for the
-// duration of the run and restore it afterwards (the repo tree is untouched).
-$repoConfig = $appRoot . 'config/db.php';
-$configStash = null;
-if (is_file($repoConfig)) {
-    $configStash = file_get_contents($repoConfig);
-    unlink($repoConfig);
-}
-register_shutdown_function(function () use ($repoConfig, $configStash) {
-    if ($configStash !== null) {
-        file_put_contents($repoConfig, $configStash);
-    }
-});
+// config/db.php resolves credentials environment-first, so the DB_* env vars
+// below take effect with the repo tree untouched (no stash/restore needed).
 [$c] = [0];
 sh("mysql -u root -e \"DROP DATABASE IF EXISTS $dbName; CREATE DATABASE $dbName CHARACTER SET utf8mb4;\"");
 sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '$dbUser'@'%' IDENTIFIED BY '$dbPass'; CREATE USER IF NOT EXISTS '$dbUser'@'localhost' IDENTIFIED BY '$dbPass'; ALTER USER '$dbUser'@'%' IDENTIFIED BY '$dbPass'; ALTER USER '$dbUser'@'localhost' IDENTIFIED BY '$dbPass'; GRANT ALL ON $dbName.* TO '$dbUser'@'%'; GRANT ALL ON $dbName.* TO '$dbUser'@'localhost'; FLUSH PRIVILEGES;\"");

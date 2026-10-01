@@ -20,8 +20,9 @@
  * Conventions (same as tests/phase4, tests/icp_scoring): each test file
  * requires this file, then the repo autoloader, then runs its checks in its
  * own PHP process (see run_needs_review_tests.php). Scratch MariaDB is used
- * via a TEMPORARY config/db.php that is always restored/deleted afterwards —
- * the repo tree is left exactly as it was. Zero network, zero real sends
+ * via DB_* process-environment credentials (tests/support/db_env.php) that
+ * are always cleared afterwards — the repo tree is never touched.
+ * Zero network, zero real sends
  * (operational_mode='simulated'), zero real LLM calls.
  *
  * Sibling-gating: three sibling subjects land in parallel —
@@ -35,6 +36,8 @@
  * not be. Once the siblings land, the same files exercise the full contract.
  */
 declare(strict_types=1);
+
+require_once __DIR__ . '/../support/db_env.php';
 
 $NR_PASS = 0;
 $NR_FAIL = 0;
@@ -119,19 +122,16 @@ function nr_review_api(): ?string
 // ── Scratch DB helpers (no mysql CLI: native PDO as root via socket) ──────
 
 /**
- * Create a scratch database + user via a root connection, point a TEMPORARY
- * config/db.php at it, and return the app PDO. The previous config/db.php
- * (if any) is restored — or the temp file deleted — by nr_restore_db_config().
+ * Create a scratch database + user via a root connection and point the
+ * DB_* process-environment credentials at it (tests/support/db_env.php —
+ * no files written), then return the app PDO. Prior env values (if any) are
+ * captured and can be restored via nr_restore_db_config().
  *
  * Uses only localhost TCP for the app connection (config-driven) and a
  * best-effort root connection (unix socket first, then 127.0.0.1) for admin.
  */
 function nr_scratch_db(string $dbName, string $dbUser, string $dbPass): \App\PDO
 {
-    $repo = nr_repo_root();
-    $configDir = $repo . '/config';
-    $configFile = $configDir . '/db.php';
-
     $root = null;
     $rootErr = '';
     foreach (['mysql:unix_socket=/run/mysqld/mysqld.sock', 'mysql:host=127.0.0.1'] as $dsn) {
@@ -161,37 +161,25 @@ function nr_scratch_db(string $dbName, string $dbUser, string $dbPass): \App\PDO
     $root->exec("GRANT ALL ON `{$dbName}`.* TO '{$dbUser}'@'localhost'");
     $root->exec('FLUSH PRIVILEGES');
 
-    $GLOBALS['nr_config_backup'] = is_file($configFile) ? file_get_contents($configFile) : null;
-    if (!is_dir($configDir)) {
-        mkdir($configDir, 0755, true);
-    }
-    file_put_contents(
-        $configFile,
-        "<?php\nreturn ['host' => '127.0.0.1', 'name' => '{$dbName}', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n"
-    );
-    // Each test file runs in its own PHP process, so Database's singleton
-    // picks up the temp config on first use. A second nr_scratch_db() call
-    // in the SAME process must not reuse the first connection: reset the
-    // memoized instance so getConnection() reconnects to the new database.
-    $dbRef = new \ReflectionProperty(\App\Database::class, 'instance');
-    $dbRef->setAccessible(true);
-    $dbRef->setValue(null, null);
+    // Credentials travel via the process environment now (config/db.php is
+    // environment-first): nothing is written to disk, so there is no file to
+    // race over and nothing to restore afterwards. Each test file runs in its
+    // own PHP process; a second nr_scratch_db() call in the SAME process must
+    // not reuse the first connection — test_db_use_env() resets the memoized
+    // singleton so getConnection() reconnects to the new database.
+    test_db_use_env('127.0.0.1', $dbName, $dbUser, $dbPass);
     // SequenceManager caches table probes per request — reset it explicitly.
     \App\SequenceManager::resetReadyCache();
 
     return \App\Database::getConnection();
 }
 
-/** Restore the pre-test config/db.php state. Always call in a finally block. */
+/** Restore the pre-test DB environment. Always call in a finally block. */
 function nr_restore_db_config(): void
 {
-    $configFile = nr_repo_root() . '/config/db.php';
-    $backup = $GLOBALS['nr_config_backup'] ?? null;
-    if ($backup !== null) {
-        file_put_contents($configFile, $backup);
-    } elseif (is_file($configFile)) {
-        unlink($configFile);
-    }
+    // Nothing was written to disk: just drop the scratch credentials from the
+    // process environment.
+    test_db_restore_env();
     \App\SequenceManager::resetReadyCache();
 }
 

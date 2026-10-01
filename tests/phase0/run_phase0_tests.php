@@ -5,8 +5,9 @@
  *
  * Usage: php tests/phase0/run_phase0_tests.php
  *
- * Spins up a scratch MariaDB database (phase0_test), points a TEMPORARY
- * config/db.php at it, and exercises the repaired pipeline WITHOUT any LLM:
+ * Spins up a scratch MariaDB database (phase0_test), points the DB_*
+ * process environment at it (tests/support/db_env.php — no files written),
+ * and exercises the repaired pipeline WITHOUT any LLM:
  * action subclasses stub out callAgent() (protected) with canned responses.
  *
  *   A. DraftOutreachAction — draft is scoped to the lead's OWN campaign
@@ -18,15 +19,13 @@
  *      'Enrich' (was: inserted then instantly Failed), unknown types 400,
  *      bulk Pipeline queues Enrich→Qualify→Draft staggered per lead.
  *
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 $failures = 0; $passed = 0;
 function ok(bool $cond, string $name): void {
@@ -40,7 +39,7 @@ function expectThrow(callable $fn, string $needle, string $name): void {
 }
 
 try {
-    $dbUser = 'phase0_test'; $dbPass = 'phase0_test_pw_3f8';
+    $dbUser = 'phase0_test'; $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
@@ -49,7 +48,7 @@ try {
     $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON phase0_test.* TO '{$dbUser}'@'%'; GRANT ALL ON phase0_test.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'phase0_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'phase0_test', $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -224,8 +223,7 @@ try {
 } finally {
     // Restore the repo tree exactly.
     if (isset($srvPid) && $srvPid > 0) { exec("kill {$srvPid} 2>/dev/null"); }
-    if ($hadConfig) { file_put_contents($configFile, $backup); }
-    elseif (is_file($configFile)) { unlink($configFile); }
+    test_db_restore_env();
     exec("mysql -u root -e \"DROP DATABASE IF EXISTS phase0_test;\" 2>&1");
 }
 exit($exitCode ?? 2);

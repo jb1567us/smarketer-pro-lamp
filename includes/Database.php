@@ -12,44 +12,111 @@ class Database
 
     /**
      * Resolve database credentials. Order:
-     *   1. config/db.php (written by install.php) — ['host','name','user','pass']
-     *   2. DB_HOST / DB_NAME / DB_USER / DB_PASS environment variables
-     *   3. Fail closed with an actionable message (never a password literal).
+     *   1. config/db.php — the shipped loader, which reads (in order) the
+     *      DB_HOST / DB_NAME / DB_USER / DB_PASS environment variables
+     *      (getenv(), then $_SERVER, then $_ENV for SAPI variance), then the
+     *      gitignored server-side config/.env file, and FAILS CLOSED naming
+     *      any missing variable. The environment always wins.
+     *   2. A complete legacy ['host','name','user','pass'] array returned by
+     *      config/db.php (installer-written on existing deploys, or the old
+     *      test-harness file-swap pattern) is honoured as-is for backwards
+     *      compatibility.
+     *   3. If config/db.php is absent (never in a shipped tree), resolve from
+     *      the environment directly (same four variables + config/.env).
+     *   4. Fail closed with an actionable message (never a password literal).
      */
     private static function credentials(): array
     {
         $file = dirname(__DIR__) . '/config/db.php';
         if (is_file($file)) {
-            $cfg = require $file;
-            if (is_array($cfg)) {
-                $host = (string)($cfg['host'] ?? '');
-                $name = (string)($cfg['name'] ?? '');
-                $user = (string)($cfg['user'] ?? '');
-                $pass = (string)($cfg['pass'] ?? '');
-                if ($host !== '' && $name !== '' && $user !== '' && $pass !== '') {
-                    return [$host, $name, $user, $pass];
+            try {
+                $cfg = require $file;
+            } catch (\Throwable $e) {
+                // The loader fails closed with a precise missing-variable
+                // message; surface it as the app's config exception type.
+                throw new OutreachException($e->getMessage(), 0, $e);
+            }
+            if (!is_array($cfg)) {
+                throw new OutreachException(
+                    'Database configuration file config/db.php did not return a credentials array.'
+                );
+            }
+            $missing = [];
+            foreach (['host', 'name', 'user', 'pass'] as $k) {
+                if (!isset($cfg[$k]) || (string)$cfg[$k] === '') {
+                    $missing[] = $k;
                 }
             }
-            throw new OutreachException(
-                'Database configuration file config/db.php is present but incomplete. ' .
-                'Re-run install.php or fix the file.'
-            );
+            if ($missing !== []) {
+                throw new OutreachException(
+                    'Database configuration file config/db.php is incomplete (missing: ' .
+                    implode(', ', $missing) . '). Re-run install.php, or set the DB_HOST / ' .
+                    'DB_NAME / DB_USER / DB_PASS environment variables.'
+                );
+            }
+            return [(string)$cfg['host'], (string)$cfg['name'], (string)$cfg['user'], (string)$cfg['pass']];
         }
 
-        $host = getenv('DB_HOST') ?: 'localhost';
-        $name = getenv('DB_NAME') ?: '';
-        $user = getenv('DB_USER') ?: '';
-        $pass = getenv('DB_PASS');
-
-        // Fail closed: the database password must come from the config file
-        // or the environment. Never commit a password literal here.
-        if ($pass === false || $pass === '' || $name === '' || $user === '') {
+        // No config file: environment-only resolution (mirrors config/db.php).
+        $envVal = static function (string $name): ?string {
+            $v = getenv($name);
+            if (is_string($v) && $v !== '') {
+                return $v;
+            }
+            foreach ([$_SERVER[$name] ?? null, $_ENV[$name] ?? null] as $candidate) {
+                if (is_string($candidate) && $candidate !== '') {
+                    return $candidate;
+                }
+            }
+            return null;
+        };
+        $vals = [
+            'DB_HOST' => $envVal('DB_HOST'),
+            'DB_NAME' => $envVal('DB_NAME'),
+            'DB_USER' => $envVal('DB_USER'),
+            'DB_PASS' => $envVal('DB_PASS'),
+        ];
+        // config/.env fill (gitignored; silently skipped when absent).
+        if (in_array(null, $vals, true) || in_array('', $vals, true)) {
+            $dotEnv = dirname(__DIR__) . '/config/.env';
+            if (is_file($dotEnv) && is_readable($dotEnv)) {
+                foreach (file($dotEnv, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [] as $line) {
+                    $line = trim($line);
+                    if ($line === '' || $line[0] === '#' || $line[0] === ';') {
+                        continue;
+                    }
+                    $eq = strpos($line, '=');
+                    if ($eq === false) {
+                        continue;
+                    }
+                    $k = trim(substr($line, 0, $eq));
+                    if (!array_key_exists($k, $vals)) {
+                        continue;
+                    }
+                    $v = trim(substr($line, $eq + 1));
+                    if (strlen($v) >= 2 && ($v[0] === '"' || $v[0] === "'") && $v[0] === $v[strlen($v) - 1]) {
+                        $v = substr($v, 1, -1);
+                    }
+                    if (($vals[$k] === null || $vals[$k] === '') && $v !== '') {
+                        $vals[$k] = $v;
+                    }
+                }
+            }
+        }
+        $missing = [];
+        foreach ($vals as $var => $val) {
+            if ($val === null || $val === '') {
+                $missing[] = $var;
+            }
+        }
+        if ($missing !== []) {
             throw new OutreachException(
-                'Database is not configured. Re-run the installer, ' .
-                'or set the DB_HOST / DB_NAME / DB_USER / DB_PASS environment variables.'
+                'Database is not configured. Missing: ' . implode(', ', $missing) . '. ' .
+                'Set the DB_HOST / DB_NAME / DB_USER / DB_PASS environment variables, ' .
+                'or add them to config/.env (gitignored, never committed).'
             );
         }
-        return [$host, $name, $user, $pass];
+        return [$vals['DB_HOST'], $vals['DB_NAME'], $vals['DB_USER'], $vals['DB_PASS']];
     }
 
     public static function getConnection(): \App\PDO

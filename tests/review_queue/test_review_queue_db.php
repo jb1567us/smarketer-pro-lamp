@@ -26,15 +26,13 @@
  *       is not.
  *
  * Usage: php tests/review_queue/test_review_queue_db.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 $pass = 0;
 $fail = 0;
@@ -52,7 +50,7 @@ function ok(bool $cond, string $name, string $detail = ''): void
 
 try {
     $dbUser = 'review_test';
-    $dbPass = 'review_test_pw_4x9';
+    $dbPass = 't_' . bin2hex(random_bytes(8));
     $dbName = 'review_test';
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
@@ -61,16 +59,16 @@ try {
         }
     };
     $sh("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; CREATE DATABASE {$dbName} CHARACTER SET utf8mb4;\"");
-    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
+    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
     // A fresh MariaDB ships anonymous ''@'localhost' users that shadow
     // 'user'@'%' for local TCP connections; grant the localhost host
     // explicitly so the test user always matches first.
-    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
+    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
     if (!is_dir($configDir)) {
         mkdir($configDir, 0755, true);
     }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => '{$dbName}', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', $dbName, $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -257,12 +255,8 @@ try {
     echo "  ERROR: " . get_class($e) . ': ' . $e->getMessage() . "\n";
     $fail++;
 } finally {
-    // Restore the repo tree exactly as it was.
-    if ($hadConfig) {
-        file_put_contents($configFile, $backup);
-    } elseif (is_file($configFile)) {
-        unlink($configFile);
-    }
+    // Drop the scratch credentials from the process environment.
+    test_db_restore_env();
 }
 
 echo "  -- test_review_queue_db.php: {$pass} pass, {$fail} fail\n";

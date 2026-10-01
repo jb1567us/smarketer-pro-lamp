@@ -17,3 +17,6 @@ vendor/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+
+# Local DB credentials — never committed (see config/.env.example)
+config/.env

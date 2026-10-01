@@ -7,8 +7,9 @@
  * Usage (standalone): php tests/phase4/test_sequences.php
  * (Also picked up by tests/phase4/run_phase4_tests.php's orchestrator.)
  *
- * Spins up a scratch MariaDB database (phase4_test), points a TEMPORARY
- * config/db.php at it, applies migrations/2026-09-28-phase4-sequences.sql,
+ * Spins up a scratch MariaDB database (phase4_test), points the DB_*
+ * process environment at it (tests/support/db_env.php — no files written),
+ * applies migrations/2026-09-28-phase4-sequences.sql,
  * and exercises the sequence engine WITHOUT any real sends
  * (operational_mode='simulated') and WITHOUT any LLM (SendGateAction is
  * never reached in simulated mode; classify() is never called — reply
@@ -37,15 +38,13 @@
  *   O. Migration is idempotent (applies twice cleanly).
  *   S. campaignStats() aggregates.
  *
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 $failures = 0; $passed = 0;
 function ok(bool $cond, string $name): void {
@@ -59,7 +58,7 @@ function expectThrow(callable $fn, string $needle, string $name): void {
 }
 
 try {
-    $dbUser = 'phase4_test'; $dbPass = 'phase4_test_pw_9d2';
+    $dbUser = 'phase4_test'; $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
@@ -68,7 +67,7 @@ try {
     $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON phase4_test.* TO '{$dbUser}'@'%'; GRANT ALL ON phase4_test.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'phase4_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'phase4_test', $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -362,8 +361,7 @@ try {
     $failures++;
 } finally {
     // Restore the repo tree exactly.
-    if ($hadConfig) { file_put_contents($configFile, $backup); }
-    elseif (is_file($configFile)) { unlink($configFile); }
+    test_db_restore_env();
 }
 
 exit($failures === 0 ? 0 : 1);

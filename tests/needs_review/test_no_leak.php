@@ -22,7 +22,7 @@
  * runs in simulated mode).
  *
  * Usage: php tests/needs_review/test_no_leak.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
@@ -46,7 +46,7 @@ function nr_send_gate_covers_needs_review(): bool
 }
 
 try {
-    $pdo = nr_scratch_db('nr_noleak', 'nr_test', 'nr_test_pw_4x8');
+    $pdo = nr_scratch_db('nr_noleak', 'nr_test', 't_' . bin2hex(random_bytes(8)));
 
     $pdo->exec(nr_leads_table_ddl());
     $pdo->exec("CREATE TABLE settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT) ENGINE=InnoDB");

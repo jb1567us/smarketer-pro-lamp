@@ -6,8 +6,8 @@
  * run-6 phantom-config reproducibility failure).
  *
  * Zero network. Section 1 is pure statics. Section 2 uses a scratch
- * MariaDB (config/db.php swapped and restored, same pattern as
- * test_threshold_routing.php):
+ * MariaDB (scratch credentials via tests/support/db_env.php, same pattern
+ * as test_threshold_routing.php):
  *   1. canonical hash determinism: key-order independence, list-order
  *      sensitivity, identical state -> identical hash, changed state
  *      (weights, enabled flags incl. tech_stack, target_config, thresholds,
@@ -34,7 +34,7 @@
  *      reads it back; fail-safe on null pdo.
  *
  * Usage: php tests/icp_scoring/test_profile_snapshots.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
@@ -137,14 +137,12 @@ echo "3-8. scratch-DB behavior:\n";
 
 $repo = ics_repo_root();
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 $dbExit = 0;
 
 try {
     $dbUser = 'icp_snapshots_test';
-    $dbPass = 'icp_snap_pw_7x1';
+    $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) {
@@ -156,7 +154,7 @@ try {
     if (!is_dir($configDir)) {
         mkdir($configDir, 0755, true);
     }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'icp_snapshots_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'icp_snapshots_test', $dbUser, $dbPass);
 
     $pdo = \App\Database::getConnection();
     $pdo->exec("CREATE TABLE settings (
@@ -326,11 +324,8 @@ try {
 }
 
 // --- Restore the repo tree exactly as it was --------------------------------
-if ($hadConfig) {
-    file_put_contents($configFile, $backup);
-} elseif (is_file($configFile)) {
-    unlink($configFile);
-}
+// --- Drop the scratch credentials from the process environment ----
+test_db_restore_env();
 
 ics_assert_default_mode_live('(end)');
 $code = ics_summary('test_profile_snapshots.php');

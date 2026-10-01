@@ -9,8 +9,9 @@
  *      normalization, verdict sign/verify (+ tamper), the decideSending
  *      behavior matrix, and grace-period math.
  *   B. DB-backed integration — spins up a scratch MariaDB database
- *      (licensing_test), applies a minimal settings table, points a
- *      TEMPORARY config/db.php at it, and exercises validateNow /
+ *      (licensing_test), applies a minimal settings table, points the
+ *      DB_* process environment at it (tests/support/db_env.php — no files
+ *      written), and exercises validateNow /
  *      registerNow / releaseDomainNow / dailyCheck / sendingAllowed with a
  *      STUBBED HTTP layer (no live network, ever). Restores the repo tree
  *      afterwards.
@@ -89,21 +90,19 @@ lok(Licensing::GRACE_SECONDS === 14 * 86400, 'grace is 14 days');
 echo "http-stubbed flows:\n";
 
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 try {
     $dbUser = 'licensing_test';
-    $dbPass = 'licensing_test_pw_9f2';
+    $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
     };
     $sh("mysql -u root -e \"DROP DATABASE IF EXISTS licensing_test; CREATE DATABASE licensing_test CHARACTER SET utf8mb4;\"");
-    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON licensing_test.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
+    $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON licensing_test.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'licensing_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'licensing_test', $dbUser, $dbPass);
 
     $pdo = \App\Database::getConnection();
     $pdo->exec("CREATE TABLE settings (setting_key VARCHAR(100) PRIMARY KEY, setting_value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP) ENGINE=InnoDB");
@@ -252,12 +251,7 @@ try {
     if ($failed > 0) { exit(1); }
 } finally {
     Licensing::setHttpHandler(null);
-    if ($hadConfig && $backup !== null) {
-        file_put_contents($configFile, $backup);
-    } elseif (is_file($configFile)) {
-        unlink($configFile);
-        @rmdir($configDir);
-    }
+    test_db_restore_env();
     try {
         exec("mysql -u root -e \"DROP DATABASE IF EXISTS licensing_test; DROP USER IF EXISTS 'licensing_test'@'%';\" 2>&1");
     } catch (\Throwable $e) { /* best effort */ }

@@ -30,18 +30,15 @@ $shadowLog = $tmp . '/jev_shadow.jsonl';
 // --- Scratch DB for settings ---------------------------------------------
 $dbName = 'jev_shadow_proof';
 $dbUser = 'jevproof';
-$dbPass = 'jevproof_pw_3f8';
+$dbPass = 't_' . bin2hex(random_bytes(8));
 $sh = function (string $cmd): void {
     exec($cmd . ' 2>&1', $out, $code);
     if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
 };
 $sh("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; CREATE DATABASE {$dbName} CHARACTER SET utf8mb4;\"");
-$sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
-$configDir = $repo . '/config';
-$hadConfig = is_file($configDir . '/db.php');
-$backup = $hadConfig ? file_get_contents($configDir . '/db.php') : null;
-if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-file_put_contents($configDir . '/db.php', "<?php\nreturn ['host'=>'127.0.0.1','name'=>'{$dbName}','user'=>'{$dbUser}','pass'=>'{$dbPass}'];\n");
+$sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
+require_once __DIR__ . '/../support/db_env.php';
+test_db_use_env('127.0.0.1', $dbName, $dbUser, $dbPass);
 
 $fail = 0;
 $pass = 0;
@@ -244,8 +241,7 @@ MD;
     if ($fail > 0) { exit(1); }
 } finally {
     if (isset($serverPid)) { exec("kill {$serverPid} 2>/dev/null"); }
-    if ($hadConfig && $backup !== null) { file_put_contents($configDir . '/db.php', $backup); }
-    elseif (is_file($configDir . '/db.php')) { unlink($configDir . '/db.php'); @rmdir($configDir); }
+    test_db_restore_env();
     try { exec("mysql -u root -e \"DROP DATABASE IF EXISTS jev_shadow_proof; DROP USER IF EXISTS 'jevproof'@'%';\" 2>&1"); }
     catch (\Throwable $e) { /* best effort */ }
 }

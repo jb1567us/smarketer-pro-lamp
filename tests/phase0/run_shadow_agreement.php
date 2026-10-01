@@ -26,9 +26,7 @@ declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 $mode = $argv[1] ?? '';
 if (!in_array($mode, ['--setup', '--run'], true)) {
@@ -38,7 +36,7 @@ if (!in_array($mode, ['--setup', '--run'], true)) {
 
 $dbName = 'phase1_shadow';
 $dbUser = 'phase1_sh';
-$dbPass = 'phase1_sh_pw_7a4';
+$dbPass = 't_' . bin2hex(random_bytes(8));
 
 function sh(string $cmd): void {
     exec($cmd . ' 2>&1', $out, $code);
@@ -50,7 +48,7 @@ try {
     sh("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; CREATE DATABASE {$dbName} CHARACTER SET utf8mb4;\"");
     sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => '{$dbName}', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', $dbName, $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -83,7 +81,7 @@ try {
     if ($mode === '--setup') {
         echo "shadow DB ready: {$dbName} (4 fictional leads)\n";
         echo "run with: TYPESAFE_API_KEY=... DEEPSEEK_API_KEY=... php tests/phase0/run_shadow_agreement.php --run\n";
-        echo "(DB is kept for --run; config/db.php restored below.)\n";
+        echo "(DB is kept for --run; scratch env credentials dropped below.)\n";
         $exitCode = 0;
     } else {
         $jevKey = getenv('TYPESAFE_API_KEY') ?: '';
@@ -148,8 +146,7 @@ try {
         }
     }
 } finally {
-    if ($hadConfig) { file_put_contents($configFile, $backup); }
-    elseif (is_file($configFile)) { unlink($configFile); }
+    test_db_restore_env();
     if (($argv[1] ?? '') === '--run') {
         exec("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; DROP USER IF EXISTS '{$dbUser}'@'%';\" 2>&1");
     }

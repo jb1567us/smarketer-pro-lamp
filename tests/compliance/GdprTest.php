@@ -14,8 +14,8 @@
  *   migration verbatim via the mysql CLI, then applies the item-5 GDPR DDL
  *   inline (which also validates the DDL in the item-5 report), seeds
  *   fixture rows, and runs the assertions. Afterwards it drops the scratch
- *   database and restores the repo tree exactly as it was (config/db.php is
- *   restored or deleted).
+ *   database and drops the scratch credentials from the process environment
+ *   (tests/support/db_env.php) — the repo tree is never touched.
  *
  * The coordinator runs Section B at integration time; Section A can run
  * standalone by defining GDPR_SKIP_DB=1 in the environment.
@@ -77,13 +77,11 @@ if (getenv('GDPR_SKIP_DB') === '1') {
 echo "B. MariaDB integration:\n";
 
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 try {
     $dbUser = 'gdpr_test';
-    $dbPass = 'gdpr_test_pw_9f2';
+    $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
@@ -93,7 +91,7 @@ try {
     $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON gdpr_test.* TO '{$dbUser}'@'%'; GRANT ALL ON gdpr_test.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'gdpr_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'gdpr_test', $dbUser, $dbPass);
 
     $pdo = \App\Database::getConnection();
 
@@ -222,12 +220,7 @@ try {
     if ($failures > 0) { exit(1); }
 } finally {
     // Restore the repo tree exactly.
-    if ($hadConfig && $backup !== null) {
-        file_put_contents($configFile, $backup);
-    } elseif (is_file($configFile)) {
-        unlink($configFile);
-        @rmdir($configDir);
-    }
+    test_db_restore_env();
     try {
         exec("mysql -u root -e \"DROP DATABASE IF EXISTS gdpr_test; DROP USER IF EXISTS 'gdpr_test'@'%';\" 2>&1");
     } catch (\Throwable $e) { /* best effort */ }

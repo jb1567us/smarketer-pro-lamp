@@ -19,16 +19,14 @@
  *   - drafts are persisted and visible (status Drafted + notes)
  *   - zero emails were sent (email_logs empty; the send path is never called)
  *
- * The repo tree is left exactly as it was (config/db.php restored/deleted,
+ * The repo tree is left exactly as it was (scratch DB creds via env only;
  * scratch DB dropped at the end of --run).
  */
 declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 $mode = $argv[1] ?? '';
 if (!in_array($mode, ['--setup', '--run'], true)) {
@@ -38,7 +36,7 @@ if (!in_array($mode, ['--setup', '--run'], true)) {
 
 $dbName = 'phase0_acceptance';
 $dbUser = 'phase0_acc';
-$dbPass = 'phase0_acc_pw_9d2';
+$dbPass = 't_' . bin2hex(random_bytes(8));
 
 function sh(string $cmd): void {
     exec($cmd . ' 2>&1', $out, $code);
@@ -49,7 +47,7 @@ try {
     sh("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; CREATE DATABASE {$dbName} CHARACTER SET utf8mb4;\"");
     sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'%'; GRANT ALL ON {$dbName}.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => '{$dbName}', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', $dbName, $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -92,7 +90,7 @@ try {
     if ($mode === '--setup') {
         echo "acceptance DB ready: {$dbName} (campaign {$campaignId}, 4 fictional leads)\n";
         echo "run with: DEEPSEEK_API_KEY=... php tests/phase0/run_acceptance.php --run\n";
-        echo "(DB is kept for --run; config/db.php restored below.)\n";
+        echo "(DB is kept for --run; scratch env credentials dropped below.)\n";
         $exitCode = 0; // set flag; real exit happens after finally restores config
     } else {
 
@@ -162,8 +160,7 @@ try {
     } // end else (--run with key present)
     } // end else (--run)
 } finally {
-    if ($hadConfig) { file_put_contents($configFile, $backup); }
-    elseif (is_file($configFile)) { unlink($configFile); }
+    test_db_restore_env();
     if (($argv[1] ?? '') === '--run') {
         exec("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; DROP USER IF EXISTS '{$dbUser}'@'%';\" 2>&1");
     }

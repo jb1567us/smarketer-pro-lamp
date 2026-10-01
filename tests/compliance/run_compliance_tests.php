@@ -5,20 +5,16 @@
  * Usage: php tests/compliance/run_compliance_tests.php
  *
  * Spins up a scratch MariaDB database (compliance_test), applies the real
- * schema.sql + the compliance migration, points a TEMPORARY config/db.php at
- * it, runs the assertions, then removes the temp config. The repo tree is
- * left exactly as it was (config/db.php is restored or deleted).
+ * schema.sql + the compliance migration, points the DB_* environment at
+ * it (tests/support/db_env.php — no files written), runs the assertions,
+ * then drops the scratch database and clears the env. The repo tree is
+ * left exactly as it was.
  */
 declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = null;
-if ($hadConfig) {
-    $backup = file_get_contents($configFile);
-}
+require_once __DIR__ . '/../support/db_env.php';
 
 $failures = 0;
 $passed = 0;
@@ -43,7 +39,7 @@ try {
     // Local MariaDB root is unix-socket auth: use the mysql CLI like the
     // queue stress suite does, then connect over TCP as a scoped test user.
     $dbUser = 'compliance_test';
-    $dbPass = 'compliance_test_pw_7d1';
+    $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
@@ -52,7 +48,7 @@ try {
     $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON compliance_test.* TO '{$dbUser}'@'%'; GRANT ALL ON compliance_test.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'compliance_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'compliance_test', $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -273,13 +269,8 @@ try {
     echo "\n{$passed} passed, {$failures} failed\n";
     if ($failures > 0) { exit(1); }
 } finally {
-    // Restore the repo tree exactly.
-    if ($hadConfig && $backup !== null) {
-        file_put_contents($configFile, $backup);
-    } elseif (is_file($configFile)) {
-        unlink($configFile);
-        @rmdir($configDir);
-    }
+    // Drop the scratch credentials from the process environment.
+    test_db_restore_env();
     try {
         exec("mysql -u root -e \"DROP DATABASE IF EXISTS compliance_test; DROP USER IF EXISTS 'compliance_test'@'%';\" 2>&1");
     } catch (\Throwable $e) { /* best effort */ }

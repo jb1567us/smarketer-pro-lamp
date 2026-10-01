@@ -44,7 +44,7 @@ check('pristine tree copied', is_file($pristine . '/install.php') && !is_dir($pr
 // --- Scratch DB user (limited, like a cPanel account) ---------------------
 $dbName = 'installtest_b2b';
 $dbUser = 'installtest_u';
-$dbPass = 'installtest_pw_5a2';
+$dbPass = 't_' . bin2hex(random_bytes(8));
 sh("mysql -u root -e \"DROP DATABASE IF EXISTS {$dbName}; DROP USER IF EXISTS '{$dbUser}'@'%';\"");
 sh("mysql -u root -e \"CREATE USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; GRANT ALL PRIVILEGES ON {$dbName}.* TO '{$dbUser}'@'%'; FLUSH PRIVILEGES;\"");
 // Note: no CREATE DATABASE grant on *.* — the installer must handle the

@@ -32,15 +32,13 @@
  * on subject 1's ENUM migration being present in the tree.
  *
  * Usage: php tests/phase4_jev/test_needs_review_eligibility.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
 $repo = dirname(__DIR__, 2);
 $configDir = $repo . '/config';
-$configFile = $configDir . '/db.php';
-$hadConfig = is_file($configFile);
-$backup = $hadConfig ? file_get_contents($configFile) : null;
+require_once __DIR__ . '/../support/db_env.php';
 
 $failures = 0; $passed = 0;
 function nr_ok(bool $cond, string $name): void {
@@ -50,7 +48,7 @@ function nr_ok(bool $cond, string $name): void {
 }
 
 try {
-    $dbUser = 'nr_test'; $dbPass = 'nr_test_pw_7k2';
+    $dbUser = 'nr_test'; $dbPass = 't_' . bin2hex(random_bytes(8));
     $sh = function (string $cmd): void {
         exec($cmd . ' 2>&1', $out, $code);
         if ($code !== 0) { throw new RuntimeException("shell failed: {$cmd}\n" . implode("\n", $out)); }
@@ -59,7 +57,7 @@ try {
     $sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; CREATE USER IF NOT EXISTS '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'%' IDENTIFIED BY '{$dbPass}'; ALTER USER '{$dbUser}'@'localhost' IDENTIFIED BY '{$dbPass}'; GRANT ALL ON phase4_jev_nr_test.* TO '{$dbUser}'@'%'; GRANT ALL ON phase4_jev_nr_test.* TO '{$dbUser}'@'localhost'; FLUSH PRIVILEGES;\"");
 
     if (!is_dir($configDir)) { mkdir($configDir, 0755, true); }
-    file_put_contents($configFile, "<?php\nreturn ['host' => '127.0.0.1', 'name' => 'phase4_jev_nr_test', 'user' => '{$dbUser}', 'pass' => '{$dbPass}'];\n");
+    test_db_use_env('127.0.0.1', 'phase4_jev_nr_test', $dbUser, $dbPass);
 
     require $repo . '/includes/autoload.php';
     $pdo = \App\Database::getConnection();
@@ -294,8 +292,7 @@ try {
     $failures++;
 } finally {
     // Restore the repo tree exactly.
-    if ($hadConfig) { file_put_contents($configFile, $backup); }
-    elseif (is_file($configFile)) { unlink($configFile); }
+    test_db_restore_env();
 }
 
 exit($failures === 0 ? 0 : 1);

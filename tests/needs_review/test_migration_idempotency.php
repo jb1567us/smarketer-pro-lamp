@@ -14,7 +14,7 @@
  * with an explicit PENDING reason — the suite stays green and honest.
  *
  * Usage: php tests/needs_review/test_migration_idempotency.php
- * The repo tree is left exactly as it was (config/db.php restored/deleted).
+ * The repo tree is left exactly as it was (scratch DB creds via env only).
  */
 declare(strict_types=1);
 
@@ -35,7 +35,7 @@ if ($migFile === null) {
 echo "  using migration: " . substr($migFile, strlen(nr_repo_root()) + 1) . "\n";
 
 try {
-    $pdo = nr_scratch_db('nr_enum_mig', 'nr_test', 'nr_test_pw_4x8');
+    $pdo = nr_scratch_db('nr_enum_mig', 'nr_test', 't_' . bin2hex(random_bytes(8)));
 
     // Pre-migration production schema: the 7 current ENUM values.
     $pdo->exec("CREATE TABLE leads (

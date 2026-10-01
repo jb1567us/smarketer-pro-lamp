@@ -15,8 +15,8 @@
  *
  * The DB integration section is clearly marked and SKIPPED unless
  * CASL_DB_INTEGRATION=1 is set. The coordinator's integration run should
- * point config/db.php at a scratch database with the item-8 DDL applied
- * (leads.country_code + casl_decisions) and then run:
+ * export DB_* env vars pointing at a scratch database with the item-8 DDL
+ * applied (leads.country_code + casl_decisions) and then run:
  *   CASL_DB_INTEGRATION=1 php tests/compliance/CaslCountryTest.php
  */
 declare(strict_types=1);
@@ -146,14 +146,14 @@ casl_ok(\App\Compliance::isCanadianAddress('  buyer@shop.CA ') === true, 'case-i
 // ══════════════════════════════════════════════════════════════════════════
 // DB INTEGRATION — everything below touches MariaDB.
 // Skipped unless CASL_DB_INTEGRATION=1. The coordinator's integration run
-// must point config/db.php at a SCRATCH database with the item-8 DDL
-// applied (leads.country_code CHAR(2) NULL + casl_decisions table), then:
+// must export DB_* env vars pointing at a SCRATCH database with the item-8
+// DDL applied (leads.country_code CHAR(2) NULL + casl_decisions table), then:
 //   CASL_DB_INTEGRATION=1 php tests/compliance/CaslCountryTest.php
 // ══════════════════════════════════════════════════════════════════════════
 echo "db integration:\n";
 if (getenv('CASL_DB_INTEGRATION') !== '1') {
     $skipped++;
-    echo "  SKIP: set CASL_DB_INTEGRATION=1 with config/db.php pointed at a scratch\n";
+    echo "  SKIP: set CASL_DB_INTEGRATION=1 with DB_* env vars pointed at a scratch\n";
     echo "        DB carrying the item-8 DDL to run the audit + send-path checks.\n";
 } else {
     $pdo = \App\Database::getConnection();
