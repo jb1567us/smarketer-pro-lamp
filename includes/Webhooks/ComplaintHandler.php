@@ -163,6 +163,15 @@ class ComplaintHandler
             }
             $suppressFn($email, 'complaint', $provider . '_webhook');
             $suppressed++;
+            // Phase 4: halt any active sequence for this address. Best-effort;
+            // degrades silently when the sequence tables are not installed.
+            try {
+                if (class_exists(\App\SequenceManager::class)) {
+                    \App\SequenceManager::stopForEmail(null, $email, 'stopped_complaint', 'spam complaint');
+                }
+            } catch (\Throwable $e) {
+                error_log('[ComplaintHandler] sequence stop failed: ' . $e->getMessage());
+            }
         }
 
         return ['received' => $received, 'processed' => $processed, 'suppressed' => $suppressed];

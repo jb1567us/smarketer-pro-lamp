@@ -8,6 +8,11 @@
  *   POST api/campaigns.php?type=campaigns&action=update     update {id, name, description}
  *   POST api/campaigns.php?type=campaigns&action=delete     delete {id}
  *   POST api/campaigns.php?type=campaigns&action=toggle     toggle active {id}
+ *   POST api/campaigns.php?type=campaigns&action=launch     Phase 4: launch the
+ *        campaign's sequence {id} — enrolls eligible leads and queues step-1
+ *        SequenceSend tasks (422 when inactive/paused/templateless)
+ *   POST api/campaigns.php?type=campaigns&action=stop       Phase 4: halt every
+ *        active sequence enrollment of the campaign {id, reason?}
  *   POST api/campaigns.php?type=campaigns&action=resume     MANUAL resume of an
  *        auto-paused campaign {id}: clears status='paused' back to 'active',
  *        clears paused_reason/paused_at, restores is_active=1. Requires the
@@ -166,6 +171,39 @@ try {
                     $resp['send_notice'] = campaign_send_notice();
                 }
                 echo json_encode($resp);
+                exit;
+            }
+
+            // ── Phase 4: sequence launch / halt ──────────────────────────
+            // Authenticated (requireApiAuth at the top of this file). Launch
+            // enrolls eligible leads and queues step-1 SequenceSend tasks;
+            // stop halts every active enrollment of the campaign.
+            if (in_array($action, ['launch', 'stop'], true)) {
+                $lid = (int)($data['id'] ?? 0);
+                if ($lid <= 0) campaigns_error(400, 'Missing id');
+                $launcher = new \App\Actions\LaunchCampaignAction($pdo);
+                try {
+                    if ($action === 'launch') {
+                        $result = $launcher->launch($lid);
+                        echo json_encode([
+                            'success' => true,
+                            'id'      => $lid,
+                            'launch'  => $result,
+                            'meta'    => ['timestamp' => date('c')],
+                        ]);
+                    } else {
+                        $reason = trim((string)($data['reason'] ?? 'manual stop'));
+                        $stopped = $launcher->stop($lid, $reason);
+                        echo json_encode([
+                            'success' => true,
+                            'id'      => $lid,
+                            'stopped_enrollments' => $stopped,
+                            'meta'    => ['timestamp' => date('c')],
+                        ]);
+                    }
+                } catch (\App\Exceptions\OutreachException $e) {
+                    campaigns_error(422, $e->getMessage());
+                }
                 exit;
             }
 

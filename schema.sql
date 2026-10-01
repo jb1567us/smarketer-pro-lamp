@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS leads (
     contact_name VARCHAR(255),
     email VARCHAR(255) UNIQUE NOT NULL,
     website VARCHAR(255),
-    status ENUM('New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted') DEFAULT 'New',
+    status ENUM('New', 'Enriched', 'Contacted', 'Qualified', 'Unqualified', 'Converted', 'Drafted', 'Needs Review') DEFAULT 'New',
     lead_score INT DEFAULT 0,
     trust_score INT DEFAULT 0 COMMENT 'Item 4: genuine TrustScorer result (0-100); 0 = unscored',
     trust_breakdown JSON DEFAULT NULL COMMENT 'Item 4: TrustScorer per-level breakdown',
@@ -63,15 +63,69 @@ CREATE TABLE IF NOT EXISTS templates (
     subject VARCHAR(255),
     body TEXT,
     step_order INT DEFAULT 1,
+    delay_days INT NOT NULL DEFAULT 3,
     FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
     INDEX idx_campaign_order (campaign_id, step_order)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Phase 4: campaign sequences — enrollments, per-step sends, timeline.
+CREATE TABLE IF NOT EXISTS sequence_enrollments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    campaign_id INT NOT NULL,
+    lead_id INT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    current_step INT NOT NULL DEFAULT 1,
+    enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    stopped_at TIMESTAMP NULL,
+    stop_reason VARCHAR(255) NULL,
+    UNIQUE KEY uq_enrollment (campaign_id, lead_id),
+    INDEX idx_enroll_lead (lead_id),
+    INDEX idx_enroll_status (campaign_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sequence_sends (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    enrollment_id INT NOT NULL,
+    campaign_id INT NOT NULL,
+    lead_id INT NOT NULL,
+    template_id INT NULL,
+    step_order INT NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'queued',
+    scheduled_at TIMESTAMP NULL,
+    sent_at TIMESTAMP NULL,
+    task_id INT NULL,
+    track_token CHAR(64) NULL,
+    subject VARCHAR(500) NULL,
+    body MEDIUMTEXT NULL,
+    open_count INT NOT NULL DEFAULT 0,
+    first_opened_at TIMESTAMP NULL,
+    last_opened_at TIMESTAMP NULL,
+    error_message TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_track_token (track_token),
+    INDEX idx_send_enroll (enrollment_id, step_order),
+    INDEX idx_send_status (campaign_id, status, scheduled_at),
+    INDEX idx_send_lead (lead_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS sequence_events (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    campaign_id INT NOT NULL,
+    lead_id INT NULL,
+    send_id INT NULL,
+    event_type VARCHAR(48) NOT NULL,
+    detail TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_evt_campaign (campaign_id, created_at),
+    INDEX idx_evt_lead (lead_id, created_at),
+    INDEX idx_evt_send (send_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- Task Queue: Background tasks for cron processing
 CREATE TABLE IF NOT EXISTS task_queue (
     id INT AUTO_INCREMENT PRIMARY KEY,
     lead_id INT,
-    task_type ENUM('Enrichment', 'EmailOutreach', 'SocialOutreach', 'Qualify', 'Enrich', 'Draft', 'BulkVerify') NOT NULL,
+    task_type ENUM('Enrichment', 'EmailOutreach', 'SocialOutreach', 'Qualify', 'Enrich', 'Draft', 'BulkVerify', 'SequenceSend') NOT NULL,
     payload JSON,
     status ENUM('Pending', 'In Progress', 'Completed', 'Failed', 'Cancelled') DEFAULT 'Pending',
     scheduled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -224,3 +278,90 @@ CREATE TABLE IF NOT EXISTS casl_decisions (
     INDEX idx_casl_email (email),
     INDEX idx_casl_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Weighted ICP scoring model (2026-09-28). Structured ICP data: profiles +
+-- six weighted dimensions + hard veto exclusions + weight-adjustment audit.
+-- Mirrors migrations/2026-09-28-icp-scoring.sql.
+
+-- ICP profiles: multiple allowed, exactly one active at a time.
+CREATE TABLE IF NOT EXISTS icp_profiles (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    pain_statement TEXT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_icp_profile_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- The six scoring dimensions with their weights and targets.
+CREATE TABLE IF NOT EXISTS icp_dimensions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    profile_id INT NOT NULL,
+    dimension_key VARCHAR(48) NOT NULL,
+    weight INT NOT NULL DEFAULT 0,
+    buyer_locked TINYINT(1) NOT NULL DEFAULT 0,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    target_config JSON NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_icp_dimension (profile_id, dimension_key),
+    CONSTRAINT fk_icp_dimension_profile FOREIGN KEY (profile_id)
+        REFERENCES icp_profiles (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- dimension_key: company_size | industry_fit | tech_stack | target_title |
+--                geography | trigger_signals
+-- buyer_locked: 1 once a human edits the weight by hand; auto-tuning skips
+-- locked dimensions.
+
+-- Anti-persona: hard veto list. Any match disqualifies the lead outright.
+CREATE TABLE IF NOT EXISTS icp_exclusions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    profile_id INT NOT NULL,
+    exclusion_type VARCHAR(32) NOT NULL,
+    value VARCHAR(255) NOT NULL,
+    note TEXT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_icp_exclusion (profile_id, exclusion_type, value),
+    CONSTRAINT fk_icp_exclusion_profile FOREIGN KEY (profile_id)
+        REFERENCES icp_profiles (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- exclusion_type: industry | company | domain | title | keyword
+
+-- Audit trail for weight adjustments (manual edits and auto-tuning).
+CREATE TABLE IF NOT EXISTS icp_weight_history (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    profile_id INT NOT NULL,
+    dimension_key VARCHAR(48) NOT NULL,
+    old_weight INT NOT NULL,
+    new_weight INT NOT NULL,
+    reason VARCHAR(255) NULL,
+    sample_size INT NULL,
+    created_by VARCHAR(64) NOT NULL DEFAULT 'user',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_icp_weight_hist (profile_id, dimension_key, created_at),
+    CONSTRAINT fk_icp_weight_hist_profile FOREIGN KEY (profile_id)
+        REFERENCES icp_profiles (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- created_by: user | auto_tuner
+
+-- Seed: one active default profile, equal-ish weights summing to 100, empty
+-- targets / exclusions.
+INSERT IGNORE INTO icp_profiles (id, name, pain_statement, is_active)
+VALUES (1, 'Default ICP', '', 1);
+
+INSERT IGNORE INTO icp_dimensions (profile_id, dimension_key, weight, buyer_locked, enabled, target_config)
+VALUES
+    (1, 'company_size',   20, 0, 1, '{"min_employees":null,"max_employees":null}'),
+    (1, 'industry_fit',   20, 0, 1, '{"include":[],"exclude":[]}'),
+    (1, 'target_title',   20, 0, 1, '{"titles":[]}'),
+    (1, 'geography',      20, 0, 1, '{"countries":[],"regions":[]}'),
+    (1, 'trigger_signals',20, 0, 1, '{"signals":[]}'),
+    -- tech_stack is the toggleable dimension: OFF by default (enabled=0,
+    -- weight 0). The buyer enables it for tech-targeted selling; see
+    -- migrations/2026-09-29-icp-tech-stack-toggle.sql.
+    (1, 'tech_stack',      0, 0, 0, '{"tools":[]}');
+
+INSERT IGNORE INTO settings (setting_key, setting_value) VALUES
+    ('icp_threshold_qualify', '75'),
+    ('icp_threshold_review', '50');

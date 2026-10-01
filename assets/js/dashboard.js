@@ -397,21 +397,29 @@ async function runSupervisorCheck() {
     }
 }
 
-async function runTask(leadId, type) {
+async function runTask(leadId, type, btn) {
+    // Phase 0 fix (was critical defect C3): this function was dead code —
+    // nothing called it. It now backs the per-row Enrich/Qualify buttons and
+    // maps to task types the queue processor actually handles.
+    const originalHtml = btn ? btn.innerHTML : null;
+    if (btn) { btn.innerHTML = '⌛'; btn.disabled = true; }
     try {
         const response = await fetch('api/trigger_task.php', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ lead_id: leadId, task_type: type })
         });
         const result = await response.json();
         if (result.success) {
-            alert(`Task ${type} triggered: ${result.message}`);
+            toast(`Task ${type} done: ${result.message}`, 'success');
             fetchLeads();
         } else {
-            alert('Error: ' + result.error);
+            toast('Task failed: ' + result.error, 'error');
         }
     } catch (e) {
-        alert('Failed to trigger task');
+        toast('Failed to trigger task', 'error');
+    } finally {
+        if (btn) { btn.innerHTML = originalHtml; btn.disabled = false; }
     }
 }
 
@@ -440,13 +448,23 @@ async function viewLead(id) {
             <div class="h-4 w-px bg-white/10"></div>
             <div>Verification: <span class="text-white">${escapeHtml(verificationLabel(lead))}</span></div>
         </div>
-        <div class="flex-1 overflow-y-auto p-6 space-y-6" id="drawer-traces-container">
-            <div class="text-center py-12">
-                <span class="text-2xl animate-spin inline-block mb-3">⌛</span>
-                <p class="text-slate-400 text-sm">Loading AI Explainability Traces...</p>
+        <div class="flex-1 overflow-y-auto p-6 space-y-6">
+            <div id="drawer-drafts-container">
+                <div class="text-center py-8">
+                    <span class="text-2xl animate-spin inline-block mb-3">⌛</span>
+                    <p class="text-slate-400 text-sm">Loading drafts...</p>
+                </div>
+            </div>
+            <div id="drawer-traces-container">
+                <div class="text-center py-12">
+                    <span class="text-2xl animate-spin inline-block mb-3">⌛</span>
+                    <p class="text-slate-400 text-sm">Loading AI Explainability Traces...</p>
+                </div>
             </div>
         </div>
     `;
+
+    loadLeadDrafts(id);
 
     // Slide in the drawer
     drawer.classList.remove('hidden');
@@ -503,6 +521,65 @@ async function viewLead(id) {
         document.getElementById('drawer-traces-container').innerHTML = `
             <div class="text-center py-12 text-rose-400 text-sm">
                 ⚠️ Failed to load decision traces.
+            </div>
+        `;
+    }
+}
+
+async function loadLeadDrafts(id) {
+    const container = document.getElementById('drawer-drafts-container');
+    if (!container) return;
+    const badge = (status) => {
+        const map = {
+            approved: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+            needs_human: 'text-rose-400 bg-rose-500/10 border-rose-500/20',
+            pending_review: 'text-amber-400 bg-amber-500/10 border-amber-500/20',
+        };
+        const cls = map[status] || 'text-slate-400 bg-slate-500/10 border-slate-500/20';
+        const label = (status || 'unknown').replace(/_/g, ' ');
+        return `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${cls}">${escapeHtml(label)}</span>`;
+    };
+    try {
+        const response = await fetch(`api/leads.php?action=drafts&id=${id}`);
+        const result = await response.json();
+        if (result.success && result.data && result.data.length > 0) {
+            container.innerHTML = `
+                <div class="flex items-center gap-2 mb-4">
+                    <span class="text-emerald-400">✉️</span>
+                    <h4 class="text-xs uppercase font-bold tracking-wider text-slate-400">Outreach Drafts (${result.data.length})</h4>
+                </div>
+                <div class="space-y-4">
+                    ${result.data.map(d => `
+                        <div class="glass p-5 rounded-2xl border border-white/5 space-y-3 relative overflow-hidden">
+                            <div class="absolute top-0 left-0 w-1 h-full ${d.status === 'approved' ? 'bg-emerald-500' : d.status === 'needs_human' ? 'bg-rose-500' : 'bg-amber-500'}"></div>
+                            <div class="flex justify-between items-start gap-2">
+                                <div class="text-sm font-bold text-white">${escapeHtml(d.subject || '(no subject)')}</div>
+                                ${badge(d.status)}
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-mono">v${d.attempts || 1} · ${escapeHtml(d.campaign_name || '')} · ${escapeHtml(d.created_at || '')}</div>
+                            <pre class="bg-slate-950/40 p-3 rounded-lg text-[11px] text-slate-300 whitespace-pre-wrap max-h-48 overflow-y-auto leading-relaxed border border-white/5">${escapeHtml(d.body || '')}</pre>
+                            ${d.reviewer_notes ? `
+                                <div>
+                                    <div class="text-[10px] uppercase font-bold text-slate-500 mb-1">Reviewer notes</div>
+                                    <div class="text-[11px] text-slate-400 leading-relaxed">${escapeHtml(d.reviewer_notes)}</div>
+                                </div>
+                            ` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        } else {
+            container.innerHTML = `
+                <div class="text-center py-8 px-4">
+                    <div class="text-3xl mb-2">✉️</div>
+                    <p class="text-xs text-slate-500">No drafts yet for this lead.</p>
+                </div>
+            `;
+        }
+    } catch (e) {
+        container.innerHTML = `
+            <div class="text-center py-8 text-rose-400 text-sm">
+                ⚠️ Failed to load drafts.
             </div>
         `;
     }
@@ -599,6 +676,7 @@ function updateLeadsTable(leads, meta) {
                     <option value="Converted">Converted</option>
                 </select>
                 <button onclick="bulkStatusChange()" class="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs font-bold transition">Apply Status</button>
+                <button onclick="bulkPipeline()" class="px-3 py-1.5 rounded-lg bg-violet-600/20 hover:bg-violet-600/40 text-violet-300 text-xs font-bold border border-violet-500/20 transition" title="Queue Enrich → Qualify → Draft for selected leads (runs via cron, in order)">⚡ Pipeline</button>
                 <button onclick="bulkDelete()" class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-400 text-xs font-bold border border-rose-500/20 transition">🗑️ Delete</button>
                 <button onclick="clearBulkSelection()" class="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 text-xs font-bold transition">✕ Clear</button>`;
             tableWrap.insertBefore(toolbar, tableWrap.firstChild);
@@ -665,6 +743,8 @@ function renderTableRows(leads) {
             <td class="px-6 py-5">
                 <div class="flex gap-2">
                     <button onclick="analyzeLead(${lead.id}, this)" class="p-2 rounded-lg bg-white/5 hover:bg-blue-600/20 text-slate-400 hover:text-blue-400 transition" title="Analyze Intent">🧬</button>
+                    <button onclick="runTask(${lead.id}, 'Enrich', this)" class="p-2 rounded-lg bg-white/5 hover:bg-amber-600/20 text-slate-400 hover:text-amber-400 transition" title="Enrich Lead (research)">🔍</button>
+                    <button onclick="runTask(${lead.id}, 'Qualify', this)" class="p-2 rounded-lg bg-white/5 hover:bg-violet-600/20 text-slate-400 hover:text-violet-400 transition" title="Qualify Lead (ICP fit)">✅</button>
                     <button onclick="draftLead(${lead.id}, this)" class="p-2 rounded-lg bg-white/5 hover:bg-emerald-600/20 text-slate-400 hover:text-emerald-400 transition" title="Draft Email">✉️</button>
                 </div>
             </td>
@@ -706,6 +786,32 @@ function clearBulkSelection() {
 
 function getSelectedIds() {
     return [...document.querySelectorAll('.lead-checkbox:checked')].map(el => parseInt(el.dataset.id));
+}
+
+async function bulkPipeline() {
+    // Phase 0: one-click Enrich → Qualify → Draft for every selected lead.
+    // Queued (deferred) with staggered scheduled_at so the cron worker
+    // processes each lead's steps in order. No emails are sent.
+    const ids = getSelectedIds();
+    if (!ids.length) { toast('No leads selected', 'warn'); return; }
+    if (!confirm(`Queue Enrich → Qualify → Draft for ${ids.length} lead(s)? Tasks run via the cron worker in order. No emails will be sent.`)) return;
+    try {
+        const res = await fetch('api/trigger_task.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lead_ids: ids, task_type: 'Pipeline' })
+        });
+        const r = await res.json();
+        if (r.success) {
+            toast(`Queued ${r.queued} tasks for ${ids.length} lead(s)`, 'success');
+            clearBulkSelection();
+            fetchLeads();
+        } else {
+            toast('Pipeline failed: ' + (r.error || 'unknown error'), 'error');
+        }
+    } catch (e) {
+        toast('Failed to queue pipeline', 'error');
+    }
 }
 
 async function bulkDelete() {
@@ -874,7 +980,7 @@ async function draftLead(id, btn) {
     }
 }
 
-async function sendDraftEmail(leadId, btn) {
+async function sendDraftEmail(leadId, btn, forceResend = false) {
     const subject = document.getElementById('draft-subject').value;
     const body = document.getElementById('draft-body').value;
     const originalText = btn.innerText;
@@ -886,7 +992,7 @@ async function sendDraftEmail(leadId, btn) {
         const response = await fetch('api/send_email.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ lead_id: leadId, subject, body })
+            body: JSON.stringify({ lead_id: leadId, subject, body, force_resend: forceResend })
         });
         const result = await response.json();
 
@@ -895,6 +1001,14 @@ async function sendDraftEmail(leadId, btn) {
             closeModal();
             fetchLeads();
             fetchStats();
+        } else if (response.status === 409 && result.already_sent && !forceResend) {
+            // Duplicate-send protection tripped: offer a deliberate resend.
+            btn.disabled = false;
+            btn.innerText = originalText;
+            const sentAt = result.already_sent.sent_at ? new Date(result.already_sent.sent_at).toLocaleString() : 'previously';
+            if (confirm(`⚠️ Already emailed this lead (${sentAt} via ${result.already_sent.provider}).\n\nSend again anyway?`)) {
+                sendDraftEmail(leadId, btn, true);
+            }
         } else {
             toast('Error: ' + (result.error || 'Send failed'), 'error');
         }
@@ -1598,9 +1712,10 @@ async function saveSettings() {
         'ses_region',
         'proxy_enabled', 'proxy_socks_url', 'proxy_verify_url',
         'license_server_url', 'license_key',
-        // Email verification (MillionVerifier send gate + bulk verify)
-        'verification_required', 'verification_api_key', 'verification_risky_action',
-        'verification_strict', 'verification_cache_days',
+        // Email verification (MillionVerifier send gate + bulk verify). Union of both lines:
+        // A's bulk-verify keys + B's verification_provider.
+        'verification_required', 'verification_provider', 'verification_api_key',
+        'verification_risky_action', 'verification_strict', 'verification_cache_days',
         'verification_bulk_batch_size', 'verification_bulk_delay_ms',
         'verification_bulk_max_unknown_streak'
     ];
@@ -1936,3 +2051,379 @@ async function bulkVerifyCancel() {
     bulkVerifyPoll();
 }
 // ── /ITEM2 ─────────────────────────────────────────────────────────────
+
+/* ==========================================================================
+ * Ideal Customer Profile (api/icp.php)
+ * ========================================================================== */
+
+const ICP_DIMENSION_KEYS = ['company_size', 'industry_fit', 'tech_stack', 'target_title', 'geography', 'trigger_signals'];
+
+/** Mirrors IcpProfile::OPTIONAL_DIMENSIONS: the only dims with an on/off toggle. */
+const ICP_TOGGLEABLE_DIMENSIONS = ['tech_stack'];
+
+/** default_enable_weights from the last GET api/icp.php (fallback enable weight). */
+let icpDefaultEnableWeights = { tech_stack: 15 };
+
+function icpCsrfToken() {
+    return document.querySelector('meta[name="csrf-token"]')?.content || '';
+}
+
+async function icpPost(payload) {
+    const res = await fetch('api/icp.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': icpCsrfToken() },
+        body: JSON.stringify(payload)
+    });
+    return res.json();
+}
+
+function icpEscape(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+}
+
+function icpStatus(msg, isError) {
+    const el = document.getElementById('icp-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.remove('hidden');
+    el.className = 'text-[11px] ' + (isError ? 'text-rose-400' : 'text-emerald-400');
+    if (!isError) setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+function icpListToText(arr) {
+    return Array.isArray(arr) ? arr.join(', ') : '';
+}
+
+function icpSetText(id, arr) {
+    const el = document.getElementById(id);
+    if (el) el.value = icpListToText(arr);
+}
+
+/** Load the full ICP state into the settings form. Called when the settings tab opens. */
+async function loadIcp() {
+    if (!document.getElementById('icp-weights')) return; // section not on this page
+    try {
+        const res = await fetch('api/icp.php');
+        const result = await res.json();
+        if (!result.success) {
+            icpStatus('Could not load ICP: ' + (result.error || 'unknown error'), true);
+            return;
+        }
+        const d = result.data || {};
+        const profile = d.profile || {};
+        const dims = d.dimensions || {};
+        const labels = d.dimension_labels || {};
+        icpDefaultEnableWeights = d.default_enable_weights || icpDefaultEnableWeights;
+
+        document.getElementById('icp-profile-name').textContent = profile.name || 'Default ICP';
+        document.getElementById('icp-pain').value = profile.pain_statement || '';
+
+        // (a) Day-zero targets
+        const cfg = k => (dims[k] && dims[k].target_config) || {};
+        document.getElementById('icp-t-company_size-min').value = cfg('company_size').min_employees ?? '';
+        document.getElementById('icp-t-company_size-max').value = cfg('company_size').max_employees ?? '';
+        icpSetText('icp-t-industry_fit-include', cfg('industry_fit').include);
+        icpSetText('icp-t-industry_fit-exclude', cfg('industry_fit').exclude);
+        icpSetText('icp-t-tech_stack-keywords', cfg('tech_stack').tools);
+        icpSetText('icp-t-target_title-titles', cfg('target_title').titles);
+        icpSetText('icp-t-geography-countries', cfg('geography').countries);
+        icpSetText('icp-t-geography-regions', cfg('geography').regions);
+        icpSetText('icp-t-trigger_signals-signals', cfg('trigger_signals').signals);
+
+        // (b) Weight editor
+        const wrap = document.getElementById('icp-weights');
+        wrap.innerHTML = '';
+        ICP_DIMENSION_KEYS.forEach(key => {
+            const dim = dims[key] || { weight: 0, buyer_locked: false };
+            const locked = !!dim.buyer_locked;
+            const toggleable = ICP_TOGGLEABLE_DIMENSIONS.indexOf(key) !== -1;
+            // Initial switch state comes from the server's enabled flag, never
+            // from weight==0 (a disabled dim carries weight 0, but weight 0 is
+            // not how we learn the flag).
+            const isOn = dim.enabled === undefined ? true : !!dim.enabled;
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-white/5';
+            row.innerHTML =
+                '<div class="flex-1 min-w-0">' +
+                    '<div class="text-xs font-bold text-slate-200">' + icpEscape(labels[key] || key) + '</div>' +
+                    '<div class="text-[10px] text-slate-500">' +
+                        (locked
+                            ? '<span class="text-amber-400 font-bold">🔒 buyer-locked</span> <button type="button" onclick="icpUnlockDimension(\'' + icpEscape(key) + '\')" class="ml-1 underline text-slate-400 hover:text-slate-200">unlock</button>'
+                            : '<span class="text-emerald-400">🔓 auto-tunable</span>') +
+                        (toggleable
+                            ? ' <span class="ml-2 font-bold ' + (isOn ? 'text-emerald-400' : 'text-slate-500') + '">' + (isOn ? '\u25cf on' : '\u25cb off') + '</span>'
+                            : '') +
+                    '</div>' +
+                '</div>' +
+                '<input type="number" id="icp-w-' + icpEscape(key) + '" min="0" max="100" value="' + Number(dim.weight || 0) + '" ' +
+                (toggleable
+                    ? '<button type="button" role="switch" aria-checked="' + isOn + '" ' +
+                      'onclick="icpToggleDimension(\'' + icpEscape(key) + '\', ' + (!isOn) + ')"' +
+                      'title="' + (isOn ? 'Disable' : 'Enable') + ' ' + icpEscape(key) + '" ' +
+                      'class="relative w-11 h-6 shrink-0 rounded-full transition-colors ' + (isOn ? 'bg-emerald-500' : 'bg-slate-700') + '">' +
+                      '<span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ' + (isOn ? 'translate-x-5' : '') + '"></span>' +
+                      '</button>'
+                    : '') +
+                    'oninput="icpRefreshWeightSum()" ' +
+                    'class="w-20 bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2 outline-none text-sm text-slate-200 text-center focus:border-emerald-500/50 transition">';
+            wrap.appendChild(row);
+        });
+        icpRefreshWeightSum();
+
+        // (c) Exclusion list
+        const excl = d.exclusions || [];
+        const exclWrap = document.getElementById('icp-exclusions');
+        exclWrap.innerHTML = '';
+        if (!excl.length) {
+            exclWrap.innerHTML = '<p class="text-[11px] text-slate-500 italic">No vetoes yet — every lead scores normally.</p>';
+        }
+        excl.forEach(e => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-3 p-2.5 rounded-xl bg-rose-500/5 border border-rose-500/20';
+            row.innerHTML =
+                '<span class="px-2 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-rose-500/15 text-rose-300 border border-rose-500/25 shrink-0">' + icpEscape(e.exclusion_type) + '</span>' +
+                '<div class="flex-1 min-w-0">' +
+                    '<div class="text-xs text-slate-200 font-semibold truncate">' + icpEscape(e.value) + '</div>' +
+                    (e.note ? '<div class="text-[10px] text-slate-500 truncate">' + icpEscape(e.note) + '</div>' : '') +
+                '</div>' +
+                '<button type="button" data-exc-id="' + Number(e.id) + '" class="exc-del text-[10px] font-bold text-rose-400 hover:text-rose-200 uppercase tracking-wider shrink-0">Remove</button>';
+            exclWrap.appendChild(row);
+        });
+        exclWrap.querySelectorAll('.exc-del').forEach(btn => {
+            btn.addEventListener('click', () => icpDeleteExclusion(Number(btn.dataset.excId)));
+        });
+
+        // (d) Thresholds
+        const t = d.thresholds || {};
+        document.getElementById('icp-threshold-qualify').value = t.qualify ?? 75;
+        document.getElementById('icp-threshold-review').value = t.review ?? 50;
+
+        // Weight history
+        const hist = d.weight_history || [];
+        const histWrap = document.getElementById('icp-history');
+        histWrap.innerHTML = '';
+        if (!hist.length) {
+            histWrap.innerHTML = '<p class="text-[11px] text-slate-500 italic">No adjustments yet.</p>';
+        }
+        hist.forEach(h => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center gap-2 p-2 rounded-lg bg-slate-900/40 border border-white/5';
+            row.innerHTML =
+                '<span class="font-semibold text-slate-300">' + icpEscape(h.dimension_key) + '</span>' +
+                '<span class="text-slate-500">' + Number(h.old_weight) + ' → ' + Number(h.new_weight) + '</span>' +
+                '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ' +
+                    (h.created_by === 'auto_tuner' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-emerald-500/15 text-emerald-300') + '">' +
+                    icpEscape(h.created_by === 'auto_tuner' ? 'auto' : 'manual') + '</span>' +
+                (h.reason ? '<span class="text-slate-500 truncate flex-1">' + icpEscape(h.reason) + '</span>' : '') +
+                '<span class="text-slate-600 ml-auto shrink-0">' + icpEscape(h.created_at || '') + '</span>';
+            histWrap.appendChild(row);
+        });
+    } catch (e) {
+        icpStatus('Could not load ICP: ' + e.message, true);
+    }
+}
+
+function icpRefreshWeightSum() {
+    let sum = 0;
+    ICP_DIMENSION_KEYS.forEach(key => {
+        const el = document.getElementById('icp-w-' + key);
+        if (el) sum += Number(el.value) || 0;
+    });
+    const el = document.getElementById('icp-weight-sum');
+    el.textContent = sum;
+    el.className = 'text-xl font-bold ' + (sum === 100 ? 'text-emerald-400' : 'text-rose-400');
+}
+
+/**
+ * Toggle a toggleable dimension (tech_stack) on or off.
+ *
+ * Builds a full weight vector from the current spinbuttons: on enable the
+ * spinbutton value is used if it is an integer 1-100, otherwise the
+ * server-provided default enable weight (15); the other dims scale
+ * proportionally to (100 - techWeight) with rounding corrected on the
+ * largest weight. On disable tech_stack is forced to 0 and the others
+ * scale to 100. POSTs via icpPost(); on success re-renders, on failure
+ * shows icpStatus and re-renders to revert the switch.
+ */
+async function icpToggleDimension(key, on) {
+    const cur = {};
+    ICP_DIMENSION_KEYS.forEach(k => {
+        const el = document.getElementById('icp-w-' + k);
+        cur[k] = el ? Number(el.value) || 0 : 0;
+    });
+
+    let techWeight;
+    if (on) {
+        const v = cur[key];
+        const defW = icpDefaultEnableWeights[key];
+        const fallback = Number.isInteger(defW) && defW >= 1 && defW <= 100 ? defW : 15;
+        techWeight = (Number.isInteger(v) && v >= 1 && v <= 100) ? v : fallback;
+    } else {
+        techWeight = 0;
+    }
+
+    const weights = {};
+    const others = ICP_DIMENSION_KEYS.filter(k => k !== key);
+    const target = 100 - techWeight;
+    const otherSum = others.reduce((sum, k) => sum + cur[k], 0);
+    if (otherSum > 0) {
+        let acc = 0;
+        others.forEach(k => {
+            const w = Math.round(cur[k] * target / otherSum);
+            weights[k] = w;
+            acc += w;
+        });
+        // Correct rounding drift on the largest weight.
+        let largest = others[0];
+        others.forEach(k => { if (weights[k] > weights[largest]) largest = k; });
+        weights[largest] += (target - acc);
+    } else {
+        others.forEach((k, i) => {
+            weights[k] = Math.floor(target / others.length) + (i < target % others.length ? 1 : 0);
+        });
+    }
+    weights[key] = techWeight;
+
+    try {
+        const result = await icpPost({
+            action: 'set_dimension_enabled',
+            dimension_key: key,
+            enabled: on,
+            weights: weights,
+            reason: 'buyer toggled tech_stack ' + (on ? 'on' : 'off') + ' via settings UI'
+        });
+        if (result.success) {
+            icpStatus('Tech stack dimension ' + (on ? 'enabled' : 'disabled') + '.');
+        } else {
+            icpStatus('Toggle failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Toggle failed: ' + e.message, true);
+    }
+    loadIcp(); // re-render: shows the real server state either way
+}
+
+/** (a) Save the day-zero founder hypothesis: pain statement + dimension targets. */
+async function saveIcpHypothesis() {
+    const textToList = id => {
+        const el = document.getElementById(id);
+        if (!el || !el.value.trim()) return [];
+        return el.value.split(',').map(s => s.trim()).filter(Boolean);
+    };
+    const intOrNull = id => {
+        const el = document.getElementById(id);
+        const v = el ? el.value.trim() : '';
+        return v === '' ? null : Number(v);
+    };
+    const payload = {
+        action: 'save_hypothesis',
+        pain_statement: document.getElementById('icp-pain').value,
+        targets: {
+            company_size: { min_employees: intOrNull('icp-t-company_size-min'), max_employees: intOrNull('icp-t-company_size-max') },
+            industry_fit: { include: textToList('icp-t-industry_fit-include'), exclude: textToList('icp-t-industry_fit-exclude') },
+            tech_stack: { tools: textToList('icp-t-tech_stack-keywords') },
+            target_title: { titles: textToList('icp-t-target_title-titles') },
+            geography: { countries: textToList('icp-t-geography-countries'), regions: textToList('icp-t-geography-regions') },
+            trigger_signals: { signals: textToList('icp-t-trigger_signals-signals') },
+        }
+    };
+    try {
+        const result = await icpPost(payload);
+        if (result.success) icpStatus('Hypothesis saved.');
+        else icpStatus('Save failed: ' + (result.error || 'unknown error'), true);
+    } catch (e) {
+        icpStatus('Save failed: ' + e.message, true);
+    }
+}
+
+/** (b) Save the full weight vector. Server validates the sum-to-100 invariant. */
+async function saveIcpWeights() {
+    const weights = {};
+    ICP_DIMENSION_KEYS.forEach(key => {
+        const el = document.getElementById('icp-w-' + key);
+        weights[key] = el ? Number(el.value) || 0 : 0;
+    });
+    try {
+        const result = await icpPost({ action: 'save_weights', weights, reason: 'manual weight edit' });
+        if (result.success) {
+            icpStatus('Weights saved — edited dimensions are now buyer-locked.');
+            loadIcp(); // refresh lock badges + history
+        } else {
+            icpStatus('Save failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Save failed: ' + e.message, true);
+    }
+}
+
+/** (c) Add / remove anti-persona vetoes. */
+async function icpAddExclusion() {
+    try {
+        const result = await icpPost({
+            action: 'add_exclusion',
+            exclusion_type: document.getElementById('icp-exc-type').value,
+            value: document.getElementById('icp-exc-value').value,
+            note: document.getElementById('icp-exc-note').value
+        });
+        if (result.success) {
+            document.getElementById('icp-exc-value').value = '';
+            document.getElementById('icp-exc-note').value = '';
+            icpStatus('Veto added.');
+            loadIcp();
+        } else {
+            icpStatus('Add failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Add failed: ' + e.message, true);
+    }
+}
+
+async function icpDeleteExclusion(id) {
+    if (!confirm('Remove this veto?')) return;
+    try {
+        const result = await icpPost({ action: 'delete_exclusion', id });
+        if (result.success) {
+            icpStatus('Veto removed.');
+            loadIcp();
+        } else {
+            icpStatus('Remove failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Remove failed: ' + e.message, true);
+    }
+}
+
+/** (b) Release a buyer lock so the auto-tuner may adjust the dimension again. */
+async function icpUnlockDimension(key) {
+    if (!confirm('Unlock "' + key + '"? The auto-tuner may change its weight again.')) return;
+    try {
+        const result = await icpPost({ action: 'unlock_dimension', dimension_key: key });
+        if (result.success) {
+            icpStatus('Dimension unlocked.');
+            loadIcp();
+        } else {
+            icpStatus('Unlock failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Unlock failed: ' + e.message, true);
+    }
+}
+
+/** (d) Save qualification thresholds. */
+async function saveIcpThresholds() {
+    const qualify = Number(document.getElementById('icp-threshold-qualify').value);
+    const review = Number(document.getElementById('icp-threshold-review').value);
+    if (!(qualify >= 1 && qualify <= 100) || !(review >= 0 && review < qualify)) {
+        icpStatus('Invalid thresholds: need 0 <= review < qualify <= 100.', true);
+        return;
+    }
+    try {
+        const result = await icpPost({ action: 'save_thresholds', qualify, review });
+        if (result.success) icpStatus('Thresholds saved.');
+        else icpStatus('Save failed: ' + (result.error || 'unknown error'), true);
+    } catch (e) {
+        icpStatus('Save failed: ' + e.message, true);
+    }
+}

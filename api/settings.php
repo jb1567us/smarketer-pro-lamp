@@ -55,11 +55,14 @@ const SETTINGS_ALLOWLIST = [
     // (includes/Compliance.php) reads these keys; default stays OFF
     // ('verification_required' = '0'). verification_api_key is secret by
     // the `_api_key` suffix rule below — redacted on read exactly like the
-    // other provider keys.
+    // other provider keys. Deduplicated: both lines added the same core
+    // verification_* keys; one copy kept (the superset covering bulk-verify).
     'verification_required', 'verification_provider', 'verification_api_key',
     'verification_risky_action', 'verification_strict', 'verification_cache_days',
     'verification_bulk_batch_size', 'verification_bulk_delay_ms',
     'verification_bulk_max_unknown_streak',
+    // ICP scoring thresholds (auto-qualify >= qualify, human review review..qualify)
+    'icp_threshold_qualify', 'icp_threshold_review',
 ];
 
 /**

@@ -10,8 +10,10 @@
  *
  *  Test B (atomic task claim): 8 concurrent processes each call the real
  *           TaskProcessor::processTask() on the same 30 task IDs. Tasks use
- *           the valid-but-unmapped 'Enrichment' type so the claim path is
+ *           the valid-but-unmapped 'EmailOutreach' type so the claim path is
  *           exercised with zero side effects (action lookup throws instantly).
+ *           (Phase 0 mapped the legacy 'Enrichment'/'Qualification'/'Drafting'
+ *           aliases to real actions, so 'Enrichment' no longer throws.)
  *           Every task must be claimed exactly once (retry_count == 1).
  *
  * Nothing here touches production. Scratch DB: queue_stress.
@@ -51,7 +53,7 @@ register_shutdown_function(function () use ($repoConfig, $configStash) {
 });
 [$c] = [0];
 sh("mysql -u root -e \"DROP DATABASE IF EXISTS $dbName; CREATE DATABASE $dbName CHARACTER SET utf8mb4;\"");
-sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '$dbUser'@'%' IDENTIFIED BY '$dbPass'; GRANT ALL ON $dbName.* TO '$dbUser'@'%'; FLUSH PRIVILEGES;\"");
+sh("mysql -u root -e \"CREATE USER IF NOT EXISTS '$dbUser'@'%' IDENTIFIED BY '$dbPass'; CREATE USER IF NOT EXISTS '$dbUser'@'localhost' IDENTIFIED BY '$dbPass'; ALTER USER '$dbUser'@'%' IDENTIFIED BY '$dbPass'; ALTER USER '$dbUser'@'localhost' IDENTIFIED BY '$dbPass'; GRANT ALL ON $dbName.* TO '$dbUser'@'%'; GRANT ALL ON $dbName.* TO '$dbUser'@'localhost'; FLUSH PRIVILEGES;\"");
 [$code] = sh("mysql -u $dbUser -p$dbPass $dbName < " . escapeshellarg($appRoot . 'schema.sql'));
 if ($code !== 0) { echo "FAIL schema import\n"; exit(1); }
 echo "PASS scratch DB ready\n";
@@ -63,7 +65,7 @@ function resetTasks(string $mysql, int $n = 30): void {
     sh($mysql . "\"DELETE FROM task_queue; INSERT INTO leads (company_name, email) VALUES ('Stress Co', 'stress@example.com');\"");
     $leadId = trim(sh($mysql . "\"SELECT id FROM leads LIMIT 1;\"")[1]);
     for ($i = 0; $i < $n; $i++) {
-        sh($mysql . "\"INSERT INTO task_queue (lead_id, task_type, status) VALUES ($leadId, 'Enrichment', 'Pending');\"");
+        sh($mysql . "\"INSERT INTO task_queue (lead_id, task_type, status) VALUES ($leadId, 'EmailOutreach', 'Pending');\"");
     }
     sh($mysql . "\"UPDATE cron_locks SET locked_at='2000-01-01 00:00:00', pid=0 WHERE lock_name='process_queue';\"");
 }

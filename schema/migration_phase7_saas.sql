@@ -12,21 +12,61 @@ CREATE TABLE IF NOT EXISTS users (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 2. Update Campaigns to support User Isolation
-ALTER TABLE campaigns ADD COLUMN user_id INT DEFAULT NULL AFTER id;
-ALTER TABLE campaigns ADD FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+-- UNIFIED (2026-10-01): guarded — MariaDB's native IF NOT EXISTS for
+-- columns; FK added only when the (table, column, referenced table) link
+-- is absent from KEY_COLUMN_USAGE, so re-running never fatals.
+ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS user_id INT DEFAULT NULL AFTER id;
 
 -- 3. Update Leads to support User Isolation & Advanced Verification
-ALTER TABLE leads ADD COLUMN user_id INT DEFAULT NULL AFTER id;
-ALTER TABLE leads ADD FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
-
-ALTER TABLE leads 
-ADD COLUMN trust_score INT DEFAULT 0 AFTER lead_score,
-ADD COLUMN trust_breakdown JSON DEFAULT NULL AFTER trust_score,
-ADD COLUMN verification_status ENUM('unverified','evidence_backed','dns_confirmed','cross_source_matched','gold_standard','unknown','valid','invalid','risky') NOT NULL DEFAULT 'unknown' AFTER status,
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS user_id INT DEFAULT NULL AFTER id;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS trust_score INT DEFAULT 0 AFTER lead_score;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS trust_breakdown JSON DEFAULT NULL AFTER trust_score;
+-- Canonical verification_status: A's 9-value union ENUM DEFAULT 'unknown'.
+-- If the column already exists (e.g. an older VARCHAR/5-value ENUM), leave
+-- it alone here — migrations/2026-09-24-itemb-enum-align.sql converges it
+-- (guarded, with value sanitization).
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS verification_status ENUM('unverified','evidence_backed','dns_confirmed','cross_source_matched','gold_standard','unknown','valid','invalid','risky') NOT NULL DEFAULT 'unknown' AFTER status;
 -- ITEM B (2026-09-24): ENUM widened to the union of bulk-verify/gate verdicts
 -- and TrustScorer tiers; see migrations/2026-09-24-itemb-enum-align.sql.
-ADD COLUMN mx_records TEXT DEFAULT NULL AFTER notes,
-ADD COLUMN tech_stack TEXT DEFAULT NULL AFTER mx_records;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS mx_records TEXT DEFAULT NULL AFTER notes;
+ALTER TABLE leads ADD COLUMN IF NOT EXISTS tech_stack TEXT DEFAULT NULL AFTER mx_records;
+
+DELIMITER $$
+DROP PROCEDURE IF EXISTS phase7_fk_guard$$
+CREATE PROCEDURE phase7_fk_guard()
+BEGIN
+    -- campaigns.user_id -> users(id)
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'campaigns'
+          AND COLUMN_NAME = 'user_id' AND REFERENCED_TABLE_NAME = 'users'
+    ) AND EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'campaigns' AND COLUMN_NAME = 'user_id'
+    ) AND EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+    ) THEN
+        ALTER TABLE campaigns ADD FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
+    -- leads.user_id -> users(id)
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'leads'
+          AND COLUMN_NAME = 'user_id' AND REFERENCED_TABLE_NAME = 'users'
+    ) AND EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'leads' AND COLUMN_NAME = 'user_id'
+    ) AND EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'
+    ) THEN
+        ALTER TABLE leads ADD FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+    END IF;
+END$$
+DELIMITER ;
+CALL phase7_fk_guard();
+DROP PROCEDURE IF EXISTS phase7_fk_guard;
 
 -- 4. Enable Tenant-Specific Settings (Overrides global defaults)
 CREATE TABLE IF NOT EXISTS user_settings (
@@ -52,9 +92,33 @@ CREATE TABLE IF NOT EXISTS user_proxies (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 6. Add Indexes to boost background queue efficiency
-CREATE INDEX idx_leads_verification ON leads(verification_status, trust_score);
-CREATE INDEX idx_leads_tenant ON leads(user_id);
-CREATE INDEX idx_campaigns_tenant ON campaigns(user_id);
+-- UNIFIED (2026-10-01): guarded on information_schema.STATISTICS — re-run safe.
+DELIMITER $$
+DROP PROCEDURE IF EXISTS phase7_index_guard$$
+CREATE PROCEDURE phase7_index_guard()
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'leads' AND INDEX_NAME = 'idx_leads_verification'
+    ) THEN
+        CREATE INDEX idx_leads_verification ON leads(verification_status, trust_score);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'leads' AND INDEX_NAME = 'idx_leads_tenant'
+    ) THEN
+        CREATE INDEX idx_leads_tenant ON leads(user_id);
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'campaigns' AND INDEX_NAME = 'idx_campaigns_tenant'
+    ) THEN
+        CREATE INDEX idx_campaigns_tenant ON campaigns(user_id);
+    END IF;
+END$$
+DELIMITER ;
+CALL phase7_index_guard();
+DROP PROCEDURE IF EXISTS phase7_index_guard;
 
 -- 7. Insert new settings keys for B2B Verification
 INSERT IGNORE INTO settings (setting_key, setting_value) VALUES 

@@ -77,7 +77,7 @@ class PromptRegistry
             'Qualifier', 'B2B ICP Specialist' => "You are a B2B Lead Qualifier. Analyze the lead against the Ideal Customer Profile (ICP).
                         Return JSON: {'qualified': bool, 'score': 0-100, 'reason': string}",
 
-            'Chat Qualifier' => "Determine if this company matches a standard Ideal Customer Profile (ICP) based on size, industry, and tech stack.",
+            'Chat Qualifier' => "Determine if this company matches a standard Ideal Customer Profile (ICP) based on size and industry.",
 
             'LinkedIn Specialist' => "You are a LinkedIn Outreach Expert. 
                         Draft a connection request (max 300 chars) and a follow-up InMail based on the profile highlights.

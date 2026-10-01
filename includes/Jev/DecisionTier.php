@@ -86,6 +86,24 @@ class DecisionTier
      * Lazily builds (and caches) the shared JevProvider. Returns null when
      * unusable (missing key, network misconfiguration, ...).
      */
+    /**
+     * Build a one-off provider with a caller-specified timeout. Used for
+     * per-decision timeout overrides; the shared cached provider is
+     * untouched. Returns null when Jev is unavailable (fail-closed: the
+     * caller falls back to the legacy path).
+     */
+    private static function providerWithTimeout(int $timeout): ?JevProvider
+    {
+        $cfg = self::config();
+        try {
+            $apiKey = self::setting('jev_api_key', '') ?: null;
+            return new JevProvider($apiKey, $cfg['model'], $cfg['base_url'], $timeout);
+        } catch (\Throwable $e) {
+            error_log('[DecisionTier] Jev unavailable (timeout override): ' . $e->getMessage());
+            return null;
+        }
+    }
+
     public static function getProvider(): ?JevProvider
     {
         if (!self::$providerAttempted) {
@@ -133,6 +151,12 @@ class DecisionTier
      * @param callable $llmFallback  Zero-arg callable returning the legacy result.
      * @param callable|null $extract Optional: mixed (jev answers OR legacy result) -> comparable value.
      * @param callable|null $agree   Optional: (jev_value, llm_value) -> bool.
+     * @param int|null $timeoutOverride Optional per-decision timeout (seconds).
+     * @param bool $perDimensionAbstention Opt-in (live mode only): low-confidence
+     *        answers are marked with 'abstained' => true instead of escalating
+     *        the whole decision to the legacy path. The caller applies its
+     *        coverage floor and fail-closed rules. Used by lead_fit.score_fit
+     *        only; the other decision points keep the all-or-nothing veto.
      *
      * @return mixed The legacy result in "off"/"shadow" mode; the raw Jev
      *               *answers* array in "live" mode (callers adapt it).
@@ -143,10 +167,19 @@ class DecisionTier
         array $questions,
         callable $llmFallback,
         ?callable $extract = null,
-        ?callable $agree = null
+        ?callable $agree = null,
+        ?int $timeoutOverride = null,
+        bool $perDimensionAbstention = false
     ) {
         $mode = self::mode();
-        $provider = $mode === 'off' ? null : self::getProvider();
+        // A per-decision timeout override (e.g. the draft reviewer's <=8s
+        // budget) builds a dedicated provider instead of reusing the cached
+        // one, so one decision's urgency never changes the global timeout.
+        if ($timeoutOverride !== null && $mode !== 'off') {
+            $provider = self::providerWithTimeout($timeoutOverride);
+        } else {
+            $provider = $mode === 'off' ? null : self::getProvider();
+        }
 
         if ($mode === 'off' || $provider === null) {
             return $llmFallback();
@@ -187,6 +220,14 @@ class DecisionTier
         // live mode — escalate to the legacy path on low confidence
         $cfg = self::config();
         $minConf = $cfg['min_confidence'];
+        if ($perDimensionAbstention) {
+            // Opt-in abstention marking (lead_fit.score_fit only): answers
+            // below the threshold are flagged 'abstained' for the caller,
+            // which applies the coverage floor and fail-closed rules. The
+            // whole verdict is never discarded over one uncertain dimension.
+            // Shadow mode is unchanged: marking applies to live mode only.
+            return self::markAbstentions($answers, $minConf);
+        }
         if (self::minConfidence($answers) < $minConf) {
             error_log("[DecisionTier] [{$decisionName}] Jev confidence below {$minConf}; escalating to LLM.");
             return $llmFallback();
@@ -212,6 +253,28 @@ class DecisionTier
             }
         }
         return $confs ? min($confs) : 1.0;
+    }
+
+    /**
+     * Mark per-dimension abstentions (opt-in, lead_fit.score_fit only).
+     * Answers whose confidence is below $minConf get 'abstained' => true;
+     * answers without an explicit confidence field count as 1.0 (mirrors
+     * minConfidence) and are never abstained. Non-array answers are left
+     * untouched. The flag is always set on array answers so callers can
+     * test it with !empty().
+     *
+     * @return array<string,array> the answers with the flag added
+     */
+    public static function markAbstentions(array $answers, float $minConf): array
+    {
+        foreach ($answers as $k => $ans) {
+            if (!is_array($ans)) {
+                continue;
+            }
+            $conf = array_key_exists('confidence', $ans) ? (float)$ans['confidence'] : 1.0;
+            $answers[$k]['abstained'] = ($conf < $minConf);
+        }
+        return $answers;
     }
 
     public static function answersToBool(array $answers, string $key, float $threshold = 0.5): bool

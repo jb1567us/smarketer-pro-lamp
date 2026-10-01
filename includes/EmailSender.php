@@ -645,6 +645,9 @@ class EmailSender
         if (!$socket) {
             throw new Exception("Failed to open direct SMTP socket connection to {$host}:{$port} ({$errno} - {$errstr})");
         }
+        // Read/write timeout: the 15s above only covers the TCP connect. A
+        // stalled server must not hang the queue worker forever.
+        stream_set_timeout($socket, 15);
 
         try {
             // Welcome Greeting (220)

@@ -383,7 +383,7 @@ require_once __DIR__ . '/includes/autoload.php';
                         <div class="grid grid-cols-2 gap-4">
                             <div class="space-y-1.5">
                                 <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Model</label>
-                                <input type="text" id="setting-jev_model" placeholder="jev-1.13" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                                <input type="text" id="setting-jev_model" placeholder="jev-latest" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
                             </div>
                             <div class="space-y-1.5">
                                 <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Min Confidence (live mode)</label>
@@ -511,6 +511,51 @@ require_once __DIR__ . '/includes/autoload.php';
                                 <button type="button" onclick="licenseAction('release')" class="px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-[11px] font-bold text-white transition">Release this domain</button>
                             </div>
                             <p class="text-[9px] text-slate-500 mt-1">“Release this domain” frees the slot yourself when moving hosts — no support ticket needed.</p>
+
+                        <!-- Email Verification gate (MillionVerifier) -->
+                        <div class="space-y-1.5 pt-2 border-t border-white/5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">✉️ Email Verification <span class="text-slate-600 normal-case font-medium">— off by default</span></label>
+                            <p class="text-[9px] text-slate-500">When enabled, every send is checked against MillionVerifier first. Risky addresses are blocked (or flagged) before they can hurt your sender reputation. Uses your key and your credits.</p>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Verification Gate</label>
+                            <select id="setting-verification_required" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                <option value="0">Off (default)</option>
+                                <option value="1">On — verify every recipient before sending</option>
+                            </select>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <div class="flex justify-between items-center">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">MillionVerifier API Key</label>
+                                <a href="https://www.millionverifier.com/" target="_blank" class="text-[9px] text-blue-400 hover:text-blue-300 font-bold uppercase flex items-center gap-0.5">🔑 Get Key ↗</a>
+                            </div>
+                            <input type="password" id="setting-verification_api_key" placeholder="••••••••" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                            <p class="text-[9px] text-slate-500">Pay-as-you-go credits, never expire. With no key the gate stays dormant even when enabled.</p>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Risky Addresses</label>
+                                <select id="setting-verification_risky_action" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                    <option value="block">Block send (recommended)</option>
+                                    <option value="flag">Flag but allow</option>
+                                </select>
+                            </div>
+                            <div class="space-y-1.5">
+                                <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">"Unknown" Verdict</label>
+                                <select id="setting-verification_strict" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition appearance-none">
+                                    <option value="0">Fail open — allow</option>
+                                    <option value="1">Strict — block</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Verdict Cache (days)</label>
+                            <input type="number" min="0" max="365" id="setting-verification_cache_days" placeholder="30" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                            <p class="text-[9px] text-slate-500">Reuse a cached verdict for this many days instead of spending another credit. 0 = always re-verify.</p>
                         </div>
 
                         <!-- Active Email Provider selector -->
@@ -928,6 +973,174 @@ require_once __DIR__ . '/includes/autoload.php';
                 </div>
             </div>
 
+            <!-- Ideal Customer Profile -->
+            <div class="mt-12 pt-10 border-t border-white/5 space-y-8">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2">
+                        <span class="text-emerald-400 text-lg">🎯</span>
+                        <div>
+                            <h3 class="text-sm font-bold tracking-wider text-slate-300 uppercase">Ideal Customer Profile</h3>
+                            <p class="text-[11px] text-slate-500">Weighted scoring model: who qualifies, who gets human review, who is vetoed outright</p>
+                        </div>
+                    </div>
+                    <span id="icp-profile-name" class="px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 uppercase tracking-wider">—</span>
+                </div>
+                <p id="icp-status" class="text-[11px] text-slate-500 hidden"></p>
+
+                <!-- (a) Day-zero founder hypothesis -->
+                <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6">
+                    <div class="flex items-center gap-2 pb-3 border-b border-white/5">
+                        <span class="text-emerald-500">💡</span>
+                        <div>
+                            <h4 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Founder Hypothesis (Day Zero)</h4>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Your best guess before real buyer data arrives — refine anytime</p>
+                        </div>
+                    </div>
+                    <div class="space-y-1.5">
+                        <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Pain Statement (one sentence)</label>
+                        <input type="text" id="icp-pain" maxlength="500" placeholder="e.g. Agencies lose warm leads because follow-up is manual and slow" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Company Size — Min Employees</label>
+                            <input type="number" id="icp-t-company_size-min" min="1" placeholder="e.g. 10" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Company Size — Max Employees</label>
+                            <input type="number" id="icp-t-company_size-max" min="1" placeholder="e.g. 500" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Industries — Include (comma separated)</label>
+                            <input type="text" id="icp-t-industry_fit-include" placeholder="saas, agencies" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Industries — Exclude (comma separated)</label>
+                            <input type="text" id="icp-t-industry_fit-exclude" placeholder="crypto, gambling" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Target Technologies (comma separated)</label>
+                            <input type="text" id="icp-t-tech_stack-keywords" placeholder="shopify, hubspot" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Target Titles (comma separated)</label>
+                            <input type="text" id="icp-t-target_title-titles" placeholder="owner, head of marketing" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Countries (comma separated)</label>
+                            <input type="text" id="icp-t-geography-countries" placeholder="US, GB, DE" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Regions (comma separated)</label>
+                            <input type="text" id="icp-t-geography-regions" placeholder="Texas, Bavaria" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5 md:col-span-2">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Trigger Signals (comma separated)</label>
+                            <input type="text" id="icp-t-trigger_signals-signals" list="icp-signal-list" placeholder="funding, hiring, leadership_change, product_launch" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
+                            <datalist id="icp-signal-list">
+                                <option value="funding"></option>
+                                <option value="hiring"></option>
+                                <option value="leadership_change"></option>
+                                <option value="product_launch"></option>
+                            </datalist>
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" onclick="saveIcpHypothesis()" class="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 transition shadow-lg shadow-emerald-500/20 text-sm font-bold">Save Hypothesis</button>
+                    </div>
+                </div>
+
+                <!-- (b) Weight editor -->
+                <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6">
+                    <div class="flex items-center justify-between pb-3 border-b border-white/5">
+                        <div class="flex items-center gap-2">
+                            <span class="text-amber-500">⚖️</span>
+                            <div>
+                                <h4 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Dimension Weights</h4>
+                                <p class="text-[10px] text-slate-500 mt-0.5">Must sum to 100. Manual edits lock the dimension against auto-tuning.</p>
+                            </div>
+                        </div>
+                        <div class="text-right">
+                            <div class="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Total</div>
+                            <div id="icp-weight-sum" class="text-xl font-bold text-slate-200">—</div>
+                        </div>
+                    </div>
+                    <div id="icp-weights" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+                    <div class="flex items-center gap-3">
+                        <button type="button" onclick="saveIcpWeights()" class="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 transition shadow-lg shadow-emerald-500/20 text-sm font-bold">Save Weights</button>
+                        <p class="text-[10px] text-slate-500">A buyer-locked 🔒 dimension keeps its weight until you unlock it.</p>
+                    </div>
+                </div>
+
+                <!-- (c) Exclusion list manager (anti-persona hard vetoes) -->
+                <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6">
+                    <div class="flex items-center gap-2 pb-3 border-b border-white/5">
+                        <span class="text-rose-500">🚫</span>
+                        <div>
+                            <h4 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Anti-Persona Veto List</h4>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Any match disqualifies the lead outright — no scoring, no review</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Type</label>
+                            <select id="icp-exc-type" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-rose-500/50 transition appearance-none">
+                                <option value="industry">Industry</option>
+                                <option value="company">Company</option>
+                                <option value="domain">Domain</option>
+                                <option value="title">Title</option>
+                                <option value="keyword">Keyword</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Value</label>
+                            <input type="text" id="icp-exc-value" maxlength="255" placeholder="e.g. crypto, acme.com" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-rose-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Note (optional)</label>
+                            <input type="text" id="icp-exc-note" maxlength="500" placeholder="why this is a veto" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-rose-500/50 transition">
+                        </div>
+                        <button type="button" onclick="icpAddExclusion()" class="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 transition text-sm font-bold">Add Veto</button>
+                    </div>
+                    <div id="icp-exclusions" class="space-y-2"></div>
+                </div>
+
+                <!-- (d) Thresholds -->
+                <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-6">
+                    <div class="flex items-center gap-2 pb-3 border-b border-white/5">
+                        <span class="text-blue-500">📏</span>
+                        <div>
+                            <h4 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Qualification Thresholds</h4>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Score ≥ qualify: auto-qualified · review–qualify: human review · &lt; review: disqualified</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4 max-w-md">
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Auto-Qualify ≥</label>
+                            <input type="number" id="icp-threshold-qualify" min="1" max="100" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                        </div>
+                        <div class="space-y-1.5">
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Human Review ≥</label>
+                            <input type="number" id="icp-threshold-review" min="0" max="99" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-blue-500/50 transition">
+                        </div>
+                    </div>
+                    <div>
+                        <button type="button" onclick="saveIcpThresholds()" class="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 transition shadow-lg shadow-blue-500/20 text-sm font-bold">Save Thresholds</button>
+                    </div>
+                </div>
+
+                <!-- Weight adjustment history -->
+                <div class="p-6 rounded-2xl bg-white/[0.01] border border-white/5 space-y-4">
+                    <div class="flex items-center gap-2 pb-3 border-b border-white/5">
+                        <span class="text-slate-500">🕘</span>
+                        <div>
+                            <h4 class="text-xs uppercase tracking-[0.2em] font-bold text-slate-400">Weight Adjustment History</h4>
+                            <p class="text-[10px] text-slate-500 mt-0.5">Every weight change is audited — manual edits and auto-tuner alike</p>
+                        </div>
+                    </div>
+                    <div id="icp-history" class="space-y-1.5 text-xs text-slate-400"></div>
+                </div>
+            </div>
+
             <!-- Quota Monitor & Health Dashboard -->
             <div class="mt-12 pt-10 border-t border-white/5 space-y-6">
                 <div class="flex items-center justify-between">
@@ -988,7 +1201,7 @@ require_once __DIR__ . '/includes/autoload.php';
 
     <script src="assets/js/diagnostics.js"></script>
     <script src="assets/js/blocked_counts.js"></script>
-    <script src="assets/js/dashboard.js"></script>
+    <script src="assets/js/dashboard.js?v=<?= htmlspecialchars((string)@filemtime(__DIR__ . '/assets/js/dashboard.js')) ?>"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // Parse initial tab from query parameter
@@ -1021,6 +1234,8 @@ require_once __DIR__ . '/includes/autoload.php';
                 if (tab === 'diagnostics' && typeof loadDiagnostics === 'function') loadDiagnostics();
             })();
 
+            if (tab === 'settings' && typeof loadIcp === 'function') loadIcp();
+
             // Intercept sidebar clicks for seamless SPA tab switching on the dashboard
             document.querySelectorAll('a.tab-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
@@ -1030,6 +1245,7 @@ require_once __DIR__ . '/includes/autoload.php';
                         const tabName = href.split('?tab=')[1];
                         showTab(tabName);
                         history.pushState(null, '', 'index.php?tab=' + tabName);
+                        if (tabName === 'settings' && typeof loadIcp === 'function') loadIcp();
                     }
                 });
             });

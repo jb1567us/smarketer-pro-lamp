@@ -8,6 +8,7 @@ use App\Actions\ActionInterface;
 use App\Actions\QualifyLeadAction;
 use App\Actions\EnrichLeadAction;
 use App\Actions\DraftOutreachAction;
+use App\Actions\SendSequenceStepAction;
 use App\Database;
 use App\Exceptions\OutreachException;
 use App\Routers\SmartLLMRouter;
@@ -67,7 +68,8 @@ class TaskProcessor
                 throw new OutreachException("Unknown or unsupported task type: " . $task['task_type']);
             }
             
-            $result = $action->execute((int)$task['lead_id']);
+            if ($action instanceof \App\Actions\TaskAware) { $action->setTaskId((int)$task["id"]); }
+            $result = $action->execute((int)$task["lead_id"]);
 
             if ($result) {
                 $this->updateTaskStatus($taskId, 'Completed');
@@ -102,13 +104,21 @@ class TaskProcessor
             'Qualify' => new QualifyLeadAction($this->pdo, $this->llmRouter),
             'Enrich' => new EnrichLeadAction($this->pdo, $this->llmRouter),
             'Draft' => new DraftOutreachAction($this->pdo, $this->llmRouter),
+            // Phase 4: per-step sequence sends for launched campaigns.
+            'SequenceSend' => new SendSequenceStepAction($this->pdo, $this->llmRouter),
+            // Legacy aliases (pre-Phase-0 rows may still carry these — the
+            // queue ENUM itself allows them). Map, don't fail.
+            'Qualification' => new QualifyLeadAction($this->pdo, $this->llmRouter),
+            'Enrichment' => new EnrichLeadAction($this->pdo, $this->llmRouter),
+            'Drafting' => new DraftOutreachAction($this->pdo, $this->llmRouter),
             default => null,
         };
     }
 
     private function updateTaskStatus(int $id, string $status, ?string $error = null): void
     {
-        $stmt = $this->pdo->prepare("UPDATE task_queue SET status = ?, error_message = ?, processed_at = NOW() WHERE id = ?");
+        // Guarded write: only the In Progress claim owner may write. An action that re-queued its own task (transient retry) keeps that status.
+        $stmt = $this->pdo->prepare("UPDATE task_queue SET status = ?, error_message = ?, processed_at = NOW() WHERE id = ? AND status = 'In Progress'");
         $stmt->execute([$status, $error, $id]);
     }
 }

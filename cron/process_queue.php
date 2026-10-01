@@ -104,6 +104,34 @@ try {
 
     $activeProvider = (string)($throttles->getStore()->getSetting('active_email_provider', 'smtp') ?: 'smtp');
 
+    // --- Item 5: ICP engagement-feedback weight auto-tuner ----------------
+    // Per-buyer loop (this install's own engagement only; no cross-buyer
+    // pooling), at most once per 24h, inside the process lock. Nudges
+    // UNLOCKED ICP dimension weights toward the dimensions whose fit scores
+    // correlate with real engagement: small steps (max +/-5 per dimension
+    // per run), 10-engaged-lead sample floor, buyer_locked dimensions never
+    // touched, every change recorded in icp_weight_history with reason +
+    // sample_size. Scheduled maintenance, not real-time. Never fatal to the
+    // queue: any failure is logged and the queue continues.
+    try {
+        $icpLastStmt = $pdo->prepare("SELECT setting_value FROM settings WHERE setting_key = ?");
+        $icpLastStmt->execute([\App\Actions\AdjustIcpWeightsAction::SETTING_LAST_RUN]);
+        $icpLastRow = $icpLastStmt->fetch(\App\PDO::FETCH_ASSOC);
+        $icpLast = $icpLastRow !== false ? (int)$icpLastRow['setting_value'] : 0;
+        if (time() - $icpLast >= \App\Actions\AdjustIcpWeightsAction::RUN_INTERVAL_SECONDS) {
+            $icpResult = (new \App\Actions\AdjustIcpWeightsAction($pdo))->run();
+            $icpNow = (string)time();
+            $pdo->prepare(
+                "INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) " .
+                "ON DUPLICATE KEY UPDATE setting_value = ?"
+            )->execute([\App\Actions\AdjustIcpWeightsAction::SETTING_LAST_RUN, $icpNow, $icpNow]);
+            echo "[LOG] ICP weight auto-tuner: " . ($icpResult['status'] ?? 'unknown') .
+                " -- " . ($icpResult['detail'] ?? '') . "\n";
+        }
+    } catch (\Throwable $e) {
+        echo "[WARN] ICP weight auto-tuner failed (queue continues): " . $e->getMessage() . "\n";
+    }
+
     // Fetch pending tasks (task_type + payload are needed for the throttle gate)
     $stmt = $pdo->query("SELECT id, task_type, payload, lead_id FROM task_queue WHERE status = 'Pending' AND scheduled_at <= NOW() ORDER BY scheduled_at ASC LIMIT 10");
     $tasks = $stmt->fetchAll();
@@ -136,7 +164,7 @@ try {
         // caps (campaign daily / provider daily / global per-minute). When a
         // cap is hit the task is DEFERRED -- kept Pending with scheduled_at
         // pushed out -- never dropped. The next tick retries it automatically.
-        if (in_array($taskType, ['EmailOutreach', 'SocialOutreach'], true)) {
+        if (in_array($taskType, ['EmailOutreach', 'SocialOutreach', 'SequenceSend'], true)) {
             $payload = json_decode((string)($row['payload'] ?? ''), true);
             $payloadCampaign = isset($payload['campaign_id']) ? (int)$payload['campaign_id'] : 0;
             $decision = $throttles->checkSend(

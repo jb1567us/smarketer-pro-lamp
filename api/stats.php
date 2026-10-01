@@ -67,6 +67,16 @@ try {
         error_log('[stats.php] paused_campaigns lookup failed: ' . $e->getMessage());
     }
 
+    // Phase 4: per-campaign sequence stats (enrollments, sends, opens,
+    // replies, stops). Degrades to an empty list when the Phase-4 tables
+    // are not installed.
+    $stats['campaign_sequences'] = [];
+    try {
+        $stats['campaign_sequences'] = \App\SequenceManager::campaignStats($pdo);
+    } catch (Exception $e) {
+        error_log('[stats.php] campaign_sequences lookup failed: ' . $e->getMessage());
+    }
+
     echo json_encode([
         'success' => true, 
         'data' => $stats,

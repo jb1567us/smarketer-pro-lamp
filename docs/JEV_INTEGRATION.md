@@ -13,7 +13,7 @@ PHP port of `smarketer-pro`'s `src/llm/decision_tier.py` /
 
 | File | Role |
 |---|---|
-| `includes/Jev/JevProvider.php` | Thin System One HTTP client (POST `https://api.typesafe.ai/v1/systemone`, Bearer auth, retries on 429/529 with 2s/4s/8s backoff, 120k-char state budget). Model pinned to `jev-1.13`. |
+| `includes/Jev/JevProvider.php` | Thin System One HTTP client (POST `https://api.typesafe.ai/v1/systemone`, Bearer auth, retries on 429/529 with 2s/4s/8s backoff, 120k-char state budget). Model default `jev-latest` (pinned versions get retired by the vendor — `jev-1.13` 404s as of 2026-09-24). |
 | `includes/Jev/DecisionTier.php` | off/shadow/live routing, lazy shared provider, shadow logging. |
 | `includes/Jev/JevException.php` | Base exception. |
 | `includes/Jev/JevAuthException.php` | 401 — bad/missing key. Own file: the PSR-4 autoloader requires one class per file. |
@@ -27,7 +27,7 @@ PHP port of `smarketer-pro`'s `src/llm/decision_tier.py` /
 | `jev_enabled` | `1` = tier active, `0` = bypassed (default `0`) |
 | `jev_mode` | `shadow` (default) or `live` |
 | `jev_api_key` | TypeSafe key (`ts_...`). Stored like any other secret; never returned by `api/settings.php`. Env fallback `TYPESAFE_API_KEY`. |
-| `jev_model` | Override, default `jev-1.13` |
+| `jev_model` | Override, default `jev-latest` |
 | `jev_min_confidence` | Live-mode escalation threshold, default `0.65` |
 | `jev_shadow_log` | Optional explicit shadow-log path |
 
@@ -68,9 +68,21 @@ code that runs. No deployment needed.
 
 ## Current integration status
 
-Only `QualifyLeadAction::decideQualification()` is routed through the tier
-(decision name `qualify_lead.decide_qualification`, questions `qualified`
-[noul] + `score` [0–100], agreement = same verdict and score within 15).
+Two decision points are routed through the tier:
+
+1. `qualify_lead.decide_qualification` — questions `qualified` [noul] +
+   `score` [0–100]; agreement = same verdict and score within 15.
+2. `draft_review.review_draft` (Phase 2) — `ReviewDraftAction` reviews each
+   generated draft: questions `approved` [noul] + `score` [0–100] with
+   descriptive criteria (the vendor requires `criteria` on score questions).
+   Live behavior: approve → draft marked `approved`; reject → regenerate
+   with LLM-written feedback (max 2 regenerations), then escalate to human
+   review with the reason attached. Any JEV error/timeout/low-confidence
+   verdict fails closed to human review — the reviewer can never silently
+   approve. The review call uses a per-decision 8s timeout via
+   `DecisionTier::decide(..., $timeoutOverride)`; drafts persist in the
+   `drafts` table and render in the lead drawer.
+
 Additional decision points should be wired one at a time, each with its own
 stable decision name, and each proven in shadow mode first.
 

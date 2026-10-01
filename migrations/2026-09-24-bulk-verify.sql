@@ -25,16 +25,17 @@ guard: BEGIN
         LEAVE guard;
     END IF;
 
-    -- task_type: add 'BulkVerify' to the vocabulary.
+    -- task_type: add 'BulkVerify' to the vocabulary (UNIFIED 2026-10-01:
+    -- converged ENUM also carries 'SequenceSend' from repair/phase0-pipeline).
     SELECT COLUMN_TYPE INTO cur_type
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'task_queue' AND COLUMN_NAME = 'task_type';
     IF cur_type != '' AND LOCATE('BulkVerify', cur_type) = 0 THEN
         SELECT COUNT(*) INTO unknown_types FROM task_queue
-        WHERE task_type NOT IN ('Enrichment','EmailOutreach','SocialOutreach','Qualify','Enrich','Draft','BulkVerify');
+        WHERE task_type NOT IN ('Enrichment','EmailOutreach','SocialOutreach','Qualify','Enrich','Draft','BulkVerify','SequenceSend');
         IF unknown_types = 0 THEN
             ALTER TABLE task_queue
-                MODIFY COLUMN task_type ENUM('Enrichment','EmailOutreach','SocialOutreach','Qualify','Enrich','Draft','BulkVerify') NOT NULL;
+                MODIFY COLUMN task_type ENUM('Enrichment','EmailOutreach','SocialOutreach','Qualify','Enrich','Draft','BulkVerify','SequenceSend') NOT NULL;
         END IF;
     END IF;
 

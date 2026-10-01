@@ -109,6 +109,9 @@ class SmartLLMRouter
             case 'openai':
                 $res = $this->callOpenAI($apiKey, $payload, $forceJson, $temperature);
                 break;
+            case 'deepseek':
+                $res = $this->callDeepSeek($apiKey, $payload, $forceJson, $temperature);
+                break;
             case 'anthropic':
                 $res = $this->callAnthropic($apiKey, $payload, $forceJson, $temperature);
                 break;
@@ -245,6 +248,51 @@ class SmartLLMRouter
         }
 
         return ['success' => true, 'data' => ['response' => $text, 'provider' => 'openai']];
+    }
+
+    /**
+     * DeepSeek (native API, OpenAI-compatible). Model comes from the
+     * `deepseek_model` setting so newer models (e.g. V4 Flash) need no
+     * code change — just update the setting.
+     */
+    private function callDeepSeek(string $apiKey, string $payload, bool $forceJson, float $temperature): array
+    {
+        $url = 'https://api.deepseek.com/chat/completions';
+
+        $model = Database::getSetting('deepseek_model') ?: 'deepseek-chat';
+
+        $body = [
+            'model'       => $model,
+            'messages'    => [['role' => 'user', 'content' => $payload]],
+            'temperature' => $temperature,
+        ];
+
+        if ($forceJson) {
+            $body['response_format'] = ['type' => 'json_object'];
+        }
+
+        $response = $this->curlPost($url, $body, [
+            'Authorization: Bearer ' . $apiKey,
+        ]);
+
+        if (!$response['ok']) {
+            error_log("[SmartLLMRouter] DeepSeek error: " . $response['body']);
+            return ['success' => false, 'error' => 'DeepSeek request failed'];
+        }
+
+        $data = json_decode($response['body'], true);
+        $text = $data['choices'][0]['message']['content'] ?? null;
+
+        if ($text === null) {
+            return ['success' => false, 'error' => 'DeepSeek empty response'];
+        }
+
+        if ($forceJson) {
+            $parsed = json_decode($text, true);
+            return ['success' => true, 'data' => $parsed ?? ['raw' => $text]];
+        }
+
+        return ['success' => true, 'data' => ['response' => $text, 'provider' => 'deepseek']];
     }
 
     private function callAnthropic(string $apiKey, string $payload, bool $forceJson, float $temperature): array

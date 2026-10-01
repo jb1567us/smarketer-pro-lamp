@@ -32,6 +32,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } catch (\Throwable $e) {
                 error_log('[unsubscribe] lead-row mark failed: ' . $e->getMessage());
             }
+            // Phase 4: halt any active campaign sequence for this address so
+            // no further step is queued or sent. Never breaks the unsubscribe.
+            try {
+                if (class_exists(\App\SequenceManager::class)) {
+                    \App\SequenceManager::stopForEmail(null, $email, 'stopped_unsubscribe', 'one-click unsubscribe');
+                }
+            } catch (\Throwable $e) {
+                error_log('[unsubscribe] sequence stop failed: ' . $e->getMessage());
+            }
             $done = true;
         } catch (\Throwable $e) {
             error_log('[unsubscribe] suppression failed: ' . $e->getMessage());

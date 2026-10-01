@@ -122,6 +122,19 @@ class Auth
         return !empty($_SESSION['auth_user']) && !empty($_SESSION['auth_ok']);
     }
 
+    /**
+     * The logged-in username, or null when not authenticated.
+     * Used as the audit identity for human-gated actions (e.g. review
+     * decisions): the API deliberately has no API-key bypass, so this
+     * always names the session user who clicked the button.
+     */
+    public static function currentUsername(): ?string
+    {
+        self::startSession();
+        $user = $_SESSION['auth_user'] ?? null;
+        return is_string($user) && $user !== '' ? $user : null;
+    }
+
     public static function attemptLogin(string $username, string $password): bool
     {
         self::startSession();
@@ -185,9 +198,21 @@ class Auth
         }
     }
 
-    /** For api/*.php: emit 401 JSON when not authenticated. */
-    public static function requireApiAuth(): void
+    /**
+     * For api/*.php: emit 401 JSON when not authenticated.
+     *
+     * Session auth is the default. Endpoints that serve headless automation
+     * consumers may pass a long-lived API key (see \App\ApiAuth::ingestKey()):
+     * a request presenting that key via `X-Api-Key` or
+     * `Authorization: Bearer` is accepted WITHOUT a session. The key is
+     * scoped by the caller — only endpoints that pass one accept it, so
+     * passing a key to api/ingest_reply.php does not open api/settings.php.
+     */
+    public static function requireApiAuth(?string $apiKey = null): void
     {
+        if ($apiKey !== null && \App\ApiAuth::keyAuthValid($apiKey, $_SERVER)) {
+            return; // server-to-server token auth
+        }
         if (!self::isSetup() || !self::isLoggedIn()) {
             http_response_code(401);
             header('Content-Type: application/json');

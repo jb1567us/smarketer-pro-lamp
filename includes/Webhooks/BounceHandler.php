@@ -96,6 +96,8 @@ class BounceHandler
                 $suppressFn($email, 'hard_bounce', $provider . '_webhook');
                 self::logEmailLog($provider, $type, $email, $event);
                 $suppressed++;
+                // Phase 4: halt any active sequence for this address.
+                self::stopSequences($email, 'stopped_bounce', "hard bounce ({$type})");
             } elseif (self::isComplaint($provider, $type)) {
                 // Handoff to the complaint item (sibling agent). The event is
                 // already recorded above; if the handler class is not present
@@ -224,6 +226,22 @@ class BounceHandler
             ]);
         } catch (\Throwable $e) {
             error_log('[BounceHandler] email_logs write skipped: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Phase 4: halt any active campaign sequence for a bounced/complained
+     * address. Best-effort — degrades silently when the sequence tables are
+     * not installed and never breaks bounce processing.
+     */
+    private static function stopSequences(string $email, string $stopStatus, string $reason): void
+    {
+        try {
+            if (class_exists(\App\SequenceManager::class)) {
+                \App\SequenceManager::stopForEmail(null, $email, $stopStatus, $reason);
+            }
+        } catch (\Throwable $e) {
+            error_log('[BounceHandler] sequence stop failed: ' . $e->getMessage());
         }
     }
 
