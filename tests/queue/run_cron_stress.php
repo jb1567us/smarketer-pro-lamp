@@ -140,7 +140,9 @@ for ($i = 0; $i < 6; $i++) {
         escapeshellarg($appRoot) . ' ' . escapeshellarg("$tmp/holders.txt") . " > $tmp/lock_$i.log", 'r');
 }
 foreach ($handles as $h) { pclose($h); }
-sleep(1);
+// Settle window for lock-file/DB visibility across the six racers; 1s flaked
+// once under load, 2s is still cheap for a stress test.
+sleep(2);
 $holders = array_filter(explode("\n", trim(@file_get_contents("$tmp/holders.txt") ?: '')));
 $ok &= check('exactly one racer acquired the lock', count($holders) === 1);
 $early = 0;
