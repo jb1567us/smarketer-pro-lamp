@@ -980,7 +980,7 @@ require_once __DIR__ . '/includes/autoload.php';
     <div id="modal-container" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md hidden z-[100] flex items-center justify-center p-4"></div>
     <div id="drawer-container" class="fixed top-0 right-0 h-full w-full max-w-lg bg-slate-900/95 backdrop-blur-xl border-l border-white/10 shadow-2xl z-[90] transform translate-x-full transition-transform duration-300 ease-out flex flex-col"></div>
 
-    <script src="assets/js/dashboard.js"></script>
+    <script src="assets/js/dashboard.js?v=<?= htmlspecialchars((string)@filemtime(__DIR__ . '/assets/js/dashboard.js')) ?>"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             // Parse initial tab from query parameter
