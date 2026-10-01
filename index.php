@@ -833,7 +833,7 @@ require_once __DIR__ . '/includes/autoload.php';
                             <input type="text" id="icp-t-industry_fit-exclude" placeholder="crypto, gambling" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
                         </div>
                         <div class="space-y-1.5">
-                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Tech Stack Keywords (comma separated)</label>
+                            <label class="block text-[10px] text-slate-500 font-bold uppercase tracking-wider">Target Technologies (comma separated)</label>
                             <input type="text" id="icp-t-tech_stack-keywords" placeholder="shopify, hubspot" class="w-full bg-slate-900/60 border border-white/5 rounded-xl px-4 py-2.5 outline-none text-xs text-slate-300 focus:border-emerald-500/50 transition">
                         </div>
                         <div class="space-y-1.5">

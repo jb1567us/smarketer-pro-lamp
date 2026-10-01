@@ -1760,6 +1760,12 @@ async function runSmtpDiagnostics() {
 
 const ICP_DIMENSION_KEYS = ['company_size', 'industry_fit', 'tech_stack', 'target_title', 'geography', 'trigger_signals'];
 
+/** Mirrors IcpProfile::OPTIONAL_DIMENSIONS: the only dims with an on/off toggle. */
+const ICP_TOGGLEABLE_DIMENSIONS = ['tech_stack'];
+
+/** default_enable_weights from the last GET api/icp.php (fallback enable weight). */
+let icpDefaultEnableWeights = { tech_stack: 15 };
+
 function icpCsrfToken() {
     return document.querySelector('meta[name="csrf-token"]')?.content || '';
 }
@@ -1811,6 +1817,7 @@ async function loadIcp() {
         const profile = d.profile || {};
         const dims = d.dimensions || {};
         const labels = d.dimension_labels || {};
+        icpDefaultEnableWeights = d.default_enable_weights || icpDefaultEnableWeights;
 
         document.getElementById('icp-profile-name').textContent = profile.name || 'Default ICP';
         document.getElementById('icp-pain').value = profile.pain_statement || '';
@@ -1821,7 +1828,7 @@ async function loadIcp() {
         document.getElementById('icp-t-company_size-max').value = cfg('company_size').max_employees ?? '';
         icpSetText('icp-t-industry_fit-include', cfg('industry_fit').include);
         icpSetText('icp-t-industry_fit-exclude', cfg('industry_fit').exclude);
-        icpSetText('icp-t-tech_stack-keywords', cfg('tech_stack').keywords);
+        icpSetText('icp-t-tech_stack-keywords', cfg('tech_stack').tools);
         icpSetText('icp-t-target_title-titles', cfg('target_title').titles);
         icpSetText('icp-t-geography-countries', cfg('geography').countries);
         icpSetText('icp-t-geography-regions', cfg('geography').regions);
@@ -1833,6 +1840,11 @@ async function loadIcp() {
         ICP_DIMENSION_KEYS.forEach(key => {
             const dim = dims[key] || { weight: 0, buyer_locked: false };
             const locked = !!dim.buyer_locked;
+            const toggleable = ICP_TOGGLEABLE_DIMENSIONS.indexOf(key) !== -1;
+            // Initial switch state comes from the server's enabled flag, never
+            // from weight==0 (a disabled dim carries weight 0, but weight 0 is
+            // not how we learn the flag).
+            const isOn = dim.enabled === undefined ? true : !!dim.enabled;
             const row = document.createElement('div');
             row.className = 'flex items-center gap-3 p-3 rounded-xl bg-slate-900/40 border border-white/5';
             row.innerHTML =
@@ -1842,9 +1854,20 @@ async function loadIcp() {
                         (locked
                             ? '<span class="text-amber-400 font-bold">🔒 buyer-locked</span> <button type="button" onclick="icpUnlockDimension(\'' + icpEscape(key) + '\')" class="ml-1 underline text-slate-400 hover:text-slate-200">unlock</button>'
                             : '<span class="text-emerald-400">🔓 auto-tunable</span>') +
+                        (toggleable
+                            ? ' <span class="ml-2 font-bold ' + (isOn ? 'text-emerald-400' : 'text-slate-500') + '">' + (isOn ? '\u25cf on' : '\u25cb off') + '</span>'
+                            : '') +
                     '</div>' +
                 '</div>' +
                 '<input type="number" id="icp-w-' + icpEscape(key) + '" min="0" max="100" value="' + Number(dim.weight || 0) + '" ' +
+                (toggleable
+                    ? '<button type="button" role="switch" aria-checked="' + isOn + '" ' +
+                      'onclick="icpToggleDimension(\'' + icpEscape(key) + '\', ' + (!isOn) + ')"' +
+                      'title="' + (isOn ? 'Disable' : 'Enable') + ' ' + icpEscape(key) + '" ' +
+                      'class="relative w-11 h-6 shrink-0 rounded-full transition-colors ' + (isOn ? 'bg-emerald-500' : 'bg-slate-700') + '">' +
+                      '<span class="absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ' + (isOn ? 'translate-x-5' : '') + '"></span>' +
+                      '</button>'
+                    : '') +
                     'oninput="icpRefreshWeightSum()" ' +
                     'class="w-20 bg-slate-900/60 border border-white/5 rounded-xl px-3 py-2 outline-none text-sm text-slate-200 text-center focus:border-emerald-500/50 transition">';
             wrap.appendChild(row);
@@ -1915,6 +1938,75 @@ function icpRefreshWeightSum() {
     el.className = 'text-xl font-bold ' + (sum === 100 ? 'text-emerald-400' : 'text-rose-400');
 }
 
+/**
+ * Toggle a toggleable dimension (tech_stack) on or off.
+ *
+ * Builds a full weight vector from the current spinbuttons: on enable the
+ * spinbutton value is used if it is an integer 1-100, otherwise the
+ * server-provided default enable weight (15); the other dims scale
+ * proportionally to (100 - techWeight) with rounding corrected on the
+ * largest weight. On disable tech_stack is forced to 0 and the others
+ * scale to 100. POSTs via icpPost(); on success re-renders, on failure
+ * shows icpStatus and re-renders to revert the switch.
+ */
+async function icpToggleDimension(key, on) {
+    const cur = {};
+    ICP_DIMENSION_KEYS.forEach(k => {
+        const el = document.getElementById('icp-w-' + k);
+        cur[k] = el ? Number(el.value) || 0 : 0;
+    });
+
+    let techWeight;
+    if (on) {
+        const v = cur[key];
+        const defW = icpDefaultEnableWeights[key];
+        const fallback = Number.isInteger(defW) && defW >= 1 && defW <= 100 ? defW : 15;
+        techWeight = (Number.isInteger(v) && v >= 1 && v <= 100) ? v : fallback;
+    } else {
+        techWeight = 0;
+    }
+
+    const weights = {};
+    const others = ICP_DIMENSION_KEYS.filter(k => k !== key);
+    const target = 100 - techWeight;
+    const otherSum = others.reduce((sum, k) => sum + cur[k], 0);
+    if (otherSum > 0) {
+        let acc = 0;
+        others.forEach(k => {
+            const w = Math.round(cur[k] * target / otherSum);
+            weights[k] = w;
+            acc += w;
+        });
+        // Correct rounding drift on the largest weight.
+        let largest = others[0];
+        others.forEach(k => { if (weights[k] > weights[largest]) largest = k; });
+        weights[largest] += (target - acc);
+    } else {
+        others.forEach((k, i) => {
+            weights[k] = Math.floor(target / others.length) + (i < target % others.length ? 1 : 0);
+        });
+    }
+    weights[key] = techWeight;
+
+    try {
+        const result = await icpPost({
+            action: 'set_dimension_enabled',
+            dimension_key: key,
+            enabled: on,
+            weights: weights,
+            reason: 'buyer toggled tech_stack ' + (on ? 'on' : 'off') + ' via settings UI'
+        });
+        if (result.success) {
+            icpStatus('Tech stack dimension ' + (on ? 'enabled' : 'disabled') + '.');
+        } else {
+            icpStatus('Toggle failed: ' + (result.error || 'unknown error'), true);
+        }
+    } catch (e) {
+        icpStatus('Toggle failed: ' + e.message, true);
+    }
+    loadIcp(); // re-render: shows the real server state either way
+}
+
 /** (a) Save the day-zero founder hypothesis: pain statement + dimension targets. */
 async function saveIcpHypothesis() {
     const textToList = id => {
@@ -1933,7 +2025,7 @@ async function saveIcpHypothesis() {
         targets: {
             company_size: { min_employees: intOrNull('icp-t-company_size-min'), max_employees: intOrNull('icp-t-company_size-max') },
             industry_fit: { include: textToList('icp-t-industry_fit-include'), exclude: textToList('icp-t-industry_fit-exclude') },
-            tech_stack: { keywords: textToList('icp-t-tech_stack-keywords') },
+            tech_stack: { tools: textToList('icp-t-tech_stack-keywords') },
             target_title: { titles: textToList('icp-t-target_title-titles') },
             geography: { countries: textToList('icp-t-geography-countries'), regions: textToList('icp-t-geography-regions') },
             trigger_signals: { signals: textToList('icp-t-trigger_signals-signals') },
