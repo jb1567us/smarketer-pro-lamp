@@ -305,15 +305,55 @@ class AdjustIcpWeightsAction implements ActionInterface
     // ------------------------------------------------------------------
 
     /**
+     * Fail-closed gate for enabling an optional dimension: the target
+     * surface must be configured first (checked in setDimensionEnabled()
+     * BEFORE any write). Today the only optional dimension is tech_stack,
+     * whose target_config needs a non-empty `tools` list — enabling with an
+     * empty target surface would make every lead score tech_stack = 1 and
+     * turn the dimension into pure noise.
+     *
+     * Public + static so it is testable without a database; the dimension
+     * map shape is the same as IcpProfile::dimensions() returns.
+     *
+     * @param array<string,array> $dimensions dimension_key => row
+     */
+    public static function targetSurfaceConfigured(string $dimensionKey, array $dimensions): bool
+    {
+        if ($dimensionKey === 'tech_stack') {
+            $config = $dimensions[$dimensionKey]['target_config'] ?? [];
+            $tools = is_array($config) ? ($config['tools'] ?? []) : [];
+            if (!is_array($tools)) {
+                return false;
+            }
+            foreach ($tools as $tool) {
+                if (is_string($tool) && trim($tool) !== '') {
+                    return true;
+                }
+            }
+            return false;
+        }
+        // Future optional dimensions get no gate until one is defined.
+        return true;
+    }
+
+    /**
      * Enable or disable a toggleable (optional) ICP dimension — today only
      * tech_stack.
      *
      * The buyer supplies the toggle AND the full new weight vector in one
      * call: when enabling, tech_stack gets the buyer-chosen weight (>= 1);
-     * when disabling, its weight is forced to 0 (the flag, not weight 0, is
-     * what excludes it from scoring). The vector must cover every known
-     * dimension and sum to exactly 100 — IcpProfile::updateWeights enforces
-     * that and records one icp_weight_history row per changed dimension.
+     * if the buyer did not name one, the owner-confirmed default from
+     * IcpProfile::OPTIONAL_DIMENSION_ENABLE_WEIGHTS (tech_stack = 15) is
+     * used. When disabling, its weight is forced to 0 (the flag, not
+     * weight 0, is what excludes it from scoring). The vector must cover
+     * every known dimension and sum to exactly 100 —
+     * IcpProfile::updateWeights enforces that and records one
+     * icp_weight_history row per changed dimension.
+     *
+     * Fail-closed enable (owner decision 2026-10-01): enabling requires a
+     * non-empty target technology surface (target_config.tools); without it
+     * the dimension would score every lead tech_stack = 1 (pure noise), so
+     * the enable is refused before any write happens.
      *
      * buyer_locked: the toggle is itself a buyer action, so the toggled
      * dimension is buyer-locked afterwards — the auto-tuner will never move
@@ -329,8 +369,9 @@ class AdjustIcpWeightsAction implements ActionInterface
      *
      * @param array<string,int> $weights full dimension => weight vector
      * @return array{status:string,enabled:bool,weights:array<string,int>,detail:string}
-     * @throws \InvalidArgumentException on bad dimension key, bad weight, or
-     *   unknown profile (no writes happen before validation).
+     * @throws \InvalidArgumentException on bad dimension key, bad weight,
+     *   empty target surface on enable, or unknown profile (no writes
+     *   happen before validation).
      */
     public function setDimensionEnabled(
         int $profileId,
@@ -350,8 +391,26 @@ class AdjustIcpWeightsAction implements ActionInterface
             throw new \InvalidArgumentException("Unknown ICP profile {$profileId}.");
         }
 
+        // Fail-closed: no target surface, no enable. Refused before any
+        // write, so the profile stays exactly as it was.
+        if ($enabled && !self::targetSurfaceConfigured($dimensionKey, $dims)) {
+            throw new \InvalidArgumentException(
+                "Cannot enable '{$dimensionKey}': the target technology surface is empty. " .
+                "List the target technologies (target_config.tools, via save_hypothesis) " .
+                "before enabling — an empty surface would make every lead score " .
+                "'{$dimensionKey}' = 1, turning the dimension into pure noise."
+            );
+        }
+
         $techWeight = $weights[$dimensionKey] ?? null;
         if ($enabled) {
+            // Absent weight on enable: fall back to the owner-confirmed
+            // default (tech_stack = 15); a present-but-invalid weight still
+            // throws. The full vector must still sum to 100, enforced by
+            // IcpProfile::updateWeights.
+            if ($techWeight === null) {
+                $techWeight = IcpProfile::OPTIONAL_DIMENSION_ENABLE_WEIGHTS[$dimensionKey] ?? 15;
+            }
             if (!is_int($techWeight) && !(is_string($techWeight) && ctype_digit((string)$techWeight))) {
                 throw new \InvalidArgumentException(
                     "Enabling '{$dimensionKey}' requires a weight of 1-100."

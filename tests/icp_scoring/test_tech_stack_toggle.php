@@ -28,6 +28,11 @@
  *      extra keys tolerated, missing enabled dims rejected.
  *   5. setDimensionEnabled(): a non-toggleable dimension throws before any
  *      database write.
+ *   6. Owner confirmations 2026-10-01: default enable weight 15
+ *      (IcpProfile::OPTIONAL_DIMENSION_ENABLE_WEIGHTS); fail-closed enable
+ *      gate (targetSurfaceConfigured: non-empty target_config.tools required
+ *      to enable tech_stack); tightened 7-8 discoverability band requires
+ *      target-surface evidence (generic buying-center tech no longer earns it).
  *
  * Usage: php tests/icp_scoring/test_tech_stack_toggle.php
  */
@@ -169,6 +174,43 @@ try {
     $threw = str_contains($e->getMessage(), 'not toggleable');
 }
 check('non-toggleable dimension throws before any write', $threw);
+
+// --- 6. Owner confirmations 2026-10-01 --------------------------------------
+echo "6. owner confirmations 2026-10-01:\n";
+// (a) Default enable weight = 15.
+check('default enable weight for tech_stack is 15',
+    (IcpProfile::OPTIONAL_DIMENSION_ENABLE_WEIGHTS['tech_stack'] ?? null) === 15);
+// (b) Fail-closed enable gate: tech_stack needs a non-empty tools list.
+$toolsEmpty = $offDims;
+$toolsEmpty['tech_stack']['target_config'] = ['tools' => []];
+check('enable gate refuses empty tools list',
+    \App\Actions\AdjustIcpWeightsAction::targetSurfaceConfigured('tech_stack', $toolsEmpty) === false);
+$toolsBlank = $offDims;
+$toolsBlank['tech_stack']['target_config'] = ['tools' => ['  ', '']];
+check('enable gate refuses blank-only tools list',
+    \App\Actions\AdjustIcpWeightsAction::targetSurfaceConfigured('tech_stack', $toolsBlank) === false);
+$toolsMissing = $offDims;
+unset($toolsMissing['tech_stack']['target_config']);
+check('enable gate refuses missing target_config',
+    \App\Actions\AdjustIcpWeightsAction::targetSurfaceConfigured('tech_stack', $toolsMissing) === false);
+$toolsSet = $offDims;
+$toolsSet['tech_stack']['target_config'] = ['tools' => ['WordPress', 'Shopify']];
+check('enable gate accepts a non-empty tools list',
+    \App\Actions\AdjustIcpWeightsAction::targetSurfaceConfigured('tech_stack', $toolsSet) === true);
+check('enable gate does not restrict other dimensions',
+    \App\Actions\AdjustIcpWeightsAction::targetSurfaceConfigured('geography', $toolsEmpty) === true);
+// (c) Tightened 7-8 band: target-surface evidence required; a generic
+// buying-center tech (e.g. CRM not on the target list) no longer earns 7-8.
+$level7 = (string)($qsOn['dim_tech_stack']['criteria'][6] ?? '');
+check('7-8 band no longer credits generic buying-center tech',
+    !str_contains(strtolower($instr), 'buying-center'),
+    substr($instr, 0, 120));
+check('7-8 band requires target-surface evidence',
+    stripos($instr, 'target list') !== false
+    && stripos($instr, 'non-target tech does NOT earn 7-8') !== false);
+check('level 7 requires items on the target list',
+    stripos($level7, 'target list') !== false,
+    $level7);
 
 ics_assert_default_mode_off('(end)');
 exit(ics_summary('test_tech_stack_toggle.php'));

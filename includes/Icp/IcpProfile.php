@@ -54,6 +54,17 @@ class IcpProfile
      */
     public const OPTIONAL_DIMENSIONS = ['tech_stack'];
 
+    /**
+     * Default enable weight for each optional dimension (owner decision
+     * 2026-10-01: tech_stack defaults to 15 on enable). Used as the
+     * fill-in weight by AdjustIcpWeightsAction::setDimensionEnabled() when
+     * the buyer enables the dimension without naming an explicit weight,
+     * and exposed via GET api/icp.php so the settings UI can prefill it.
+     * The full weight vector must still sum to 100 — the buyer (or the UI)
+     * rebalances the other dims around this default.
+     */
+    public const OPTIONAL_DIMENSION_ENABLE_WEIGHTS = ['tech_stack' => 15];
+
     public const QUALIFY_THRESHOLD_DEFAULT = 75;
     public const REVIEW_THRESHOLD_DEFAULT = 50;
 

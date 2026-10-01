@@ -512,9 +512,11 @@ class ScoreLeadFitAction extends AbstractAction
             'Use ONLY evidence present in the lead context — never invent evidence. ' .
             'A technology you cannot see in the evidence was not found; score accordingly. ' .
             'Rubric: 9-10 = target tech surface confirmed from evidence (key technologies ' .
-            'identified); 7-8 = partial, core buying-center tech (e.g. CRM) found; ' .
-            '4-6 = thin hints only; 2-3 = minimal traces; 1 = nothing discoverable in ' .
-            'the evidence.';
+            'identified); 7-8 = target-surface evidence only: core technologies FROM THE ' .
+            'TARGET LIST found (most of the listed surface at 8 — a generic CRM or other ' .
+            'non-target tech does NOT earn 7-8); ' .
+            '4-6 = thin hints only (non-target tech); 2-3 = minimal traces; 1 = nothing ' .
+            'discoverable in the evidence.';
     }
 
     /**
@@ -533,7 +535,7 @@ class ScoreLeadFitAction extends AbstractAction
             "4 — Thin {$label} hints: some technology mentioned, but not the target surface.",
             "5 — Partial {$label} evidence: scattered tech mentions, target surface mostly unconfirmed.",
             "6 — Moderate {$label} discoverability: part of the target surface evidenced, key gaps remain.",
-            "7 — Good {$label} discoverability: core buying-center tech (e.g. CRM) found in evidence.",
+            "7 — Good {$label} discoverability: core target-surface technologies (items on the buyer's target list) found in evidence — generic non-target tech (e.g. a CRM not on the list) does not count.",
             "8 — Strong {$label} discoverability: most of the target surface confirmed.",
             "9 — Near-complete {$label} discoverability: target tech surface confirmed from evidence (key technologies identified).",
             "10 — Exceptional {$label} discoverability: the full target surface confirmed on multiple strong evidence points.",

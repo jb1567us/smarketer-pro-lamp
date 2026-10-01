@@ -154,6 +154,9 @@ try {
             'exclusions'     => IcpProfile::exclusions($profileId),
             'exclusion_types' => IcpProfile::EXCLUSION_TYPES,
             'thresholds'     => IcpProfile::thresholds(),
+            // Owner-confirmed default enable weights for optional dims
+            // (tech_stack = 15) so the settings UI can prefill them.
+            'default_enable_weights' => IcpProfile::OPTIONAL_DIMENSION_ENABLE_WEIGHTS,
             'weight_history' => $histStmt->fetchAll(PDO::FETCH_ASSOC),
         ]);
         exit;
@@ -243,7 +246,12 @@ try {
 
         // (e) Toggle an optional dimension (today: tech_stack) on/off.
         // When enabling, the buyer sets its weight in the same call via the
-        // full weights vector; when disabling, its weight is forced to 0.
+        // full weights vector; omitting it falls back to the owner-confirmed
+        // default enable weight (IcpProfile::OPTIONAL_DIMENSION_ENABLE_WEIGHTS,
+        // tech_stack = 15). Enabling is FAIL-CLOSED: the target technology
+        // surface (target_config.tools) must be non-empty first — an empty
+        // surface would score every lead tech_stack = 1 (pure noise).
+        // When disabling, its weight is forced to 0.
         // The dimension is buyer-locked by the toggle, so the auto-tuner
         // will not move the buyer-chosen weight afterwards.
         case 'set_dimension_enabled': {
