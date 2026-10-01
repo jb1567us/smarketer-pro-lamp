@@ -32,7 +32,7 @@ use App\Actions\ScoreLeadFitAction;
 use App\Icp\IcpProfile;
 use App\Jev\JevProvider;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $DIMS = IcpProfile::DIMENSIONS;
 $TH = ['qualify' => 75, 'review' => 50];
@@ -196,5 +196,5 @@ $n = ScoreLeadFitAction::normalizeJevAnswers(ics_dim_answers(['company_size' => 
 check('pct 74.4 rounds fit to 74 -> needs_review',
     $n['fit_score'] === 74 && $n['verdict'] === 'needs_review' && $n['qualified'] === false);
 
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 exit(ics_summary('test_weighted_math.php'));

@@ -236,7 +236,7 @@ min {$cmin}, max {$cmax}, mean {$cmean}. Stub latency is loopback-only and not r
 
 ## Recommendation
 
-Keep `jev_enabled=0` (off) in production. To gather real evidence: enable shadow mode with a real key, let `logs/jev_shadow.jsonl` accumulate on live traffic, then review agreement before even considering live.
+Keep `jev_enabled=0` (off) in production until the owner makes the ship call (made 2026-10-01: fresh installs now ship enabled + live). To gather real evidence: enable shadow mode with a real key, let `logs/jev_shadow.jsonl` accumulate on live traffic, then review agreement before ever considering live.
 MD;
     file_put_contents($repo . '/docs/JEV_SHADOW_PROOF.md', $doc);
     echo "proof written to docs/JEV_SHADOW_PROOF.md\n";

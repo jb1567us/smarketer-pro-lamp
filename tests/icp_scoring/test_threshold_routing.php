@@ -35,7 +35,7 @@ use App\Actions\QualifyLeadAction;
 use App\Actions\ScoreLeadFitAction;
 use App\Icp\IcpProfile;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $DIMS = IcpProfile::DIMENSIONS;
 $TH = ['qualify' => 75, 'review' => 50];
@@ -314,6 +314,6 @@ if ($hadConfig) {
     unlink($configFile);
 }
 
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 $code = ics_summary('test_threshold_routing.php');
 exit($dbExit !== 0 ? 1 : $code);

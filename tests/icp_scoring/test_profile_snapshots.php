@@ -45,7 +45,7 @@ use App\Actions\ScoreLeadFitAction;
 use App\Icp\IcpProfile;
 use App\Icp\IcpProfileSnapshot;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 // NOTE: score() in live mode builds its own provider through the
 // per-decision timeout override (DecisionTier::decide), which cannot take a
@@ -332,6 +332,6 @@ if ($hadConfig) {
     unlink($configFile);
 }
 
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 $code = ics_summary('test_profile_snapshots.php');
 exit($dbExit !== 0 ? 1 : $code);

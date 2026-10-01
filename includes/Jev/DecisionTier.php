@@ -10,11 +10,16 @@ use App\Database;
  * Decision tier — routes decision-class calls to Jev with configurable modes.
  *
  * Modes (settings: jev_enabled / jev_mode):
- *   off    — Jev is bypassed entirely; the legacy LLM path runs (default).
+ *   off    — Jev is bypassed entirely; the legacy LLM path runs. Only when
+ *            jev_enabled is explicitly '0'.
  *   shadow — both run; the LLM result is returned and the Jev result is logged
  *            to logs/jev_shadow.jsonl for agreement analysis. Zero behavior change.
  *   live   — the Jev result is returned. If Jev errors, or confidence falls below
  *            jev_min_confidence (default 0.65), the legacy LLM path runs instead.
+ *            SHIPPED DEFAULT (owner ship call 2026-10-01): a fresh install with
+ *            no stored jev_enabled/jev_mode settings runs enabled + live.
+ *            Existing installs keep their stored values — defaults apply only
+ *            when the setting row is absent.
  *
  * Each integration calls decide() with a stable $decisionName (e.g.
  * "qualify_lead.decide_qualification") so shadow logs can be sliced per
@@ -48,8 +53,10 @@ class DecisionTier
             return self::$configCache;
         }
         self::$configCache = [
-            'enabled' => self::setting('jev_enabled', '0') === '1',
-            'mode' => strtolower(self::setting('jev_mode', 'shadow') ?: 'shadow'),
+            // Shipped default (owner ship call 2026-10-01): fresh installs run
+            // enabled + live. Stored values on existing installs always win.
+            'enabled' => self::setting('jev_enabled', '1') === '1',
+            'mode' => strtolower(self::setting('jev_mode', 'live') ?: 'live'),
             'min_confidence' => (float)(self::setting('jev_min_confidence', '0.65') ?: 0.65),
             'model' => self::setting('jev_model', '') ?: null,
             'base_url' => self::setting('jev_base_url', '') ?: null,

@@ -33,7 +33,7 @@ use App\Actions\ScoreLeadFitAction;
 use App\Icp\IcpProfile;
 use App\Jev\DecisionTier;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $DIMS = IcpProfile::DIMENSIONS;
 $weights = ics_profile()['weights'];
@@ -178,5 +178,5 @@ check('shadow: agree=true logged when verdicts match and scores within 15',
     $rec2 !== null && ($rec2['agree'] ?? null) === true);
 @unlink($shadowLog2);
 
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 exit(ics_summary('test_shadow_contract.php'));

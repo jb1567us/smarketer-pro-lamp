@@ -1,6 +1,6 @@
 # JEV Shadow-Mode Proof — smarketer-pro-lamp
 
-Date: 2026-09-24 | Harness: `tests/jev/shadow_proof.php` | 20 fixtures, scripted stub TypeSafe server (no real credits spent).
+Date: 2026-10-01 | Harness: `tests/jev/shadow_proof.php` | 20 fixtures, scripted stub TypeSafe server (no real credits spent).
 
 ## What was proven
 
@@ -44,4 +44,4 @@ min 0.35, max 0.95, mean 0.71. Stub latency is loopback-only and not representat
 
 ## Recommendation
 
-Keep `jev_enabled=0` (off) in production. To gather real evidence: enable shadow mode with a real key, let `logs/jev_shadow.jsonl` accumulate on live traffic, then review agreement before even considering live.
+Keep `jev_enabled=0` (off) in production until the owner makes the ship call (made 2026-10-01: fresh installs now ship enabled + live). To gather real evidence: enable shadow mode with a real key, let `logs/jev_shadow.jsonl` accumulate on live traffic, then review agreement before ever considering live.

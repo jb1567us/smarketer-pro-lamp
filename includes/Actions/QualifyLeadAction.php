@@ -231,7 +231,8 @@ class QualifyLeadAction extends AbstractAction
      * ScoreLeadFitAction resolve to this.
      *
      * Modes (settings jev_enabled / jev_mode):
-     *   off    — legacy LLM path, exactly as before (default).
+     *   off    — legacy LLM path, exactly as before (explicit opt-out;
+     *            shipped default is live since the 2026-10-01 ship call).
      *   shadow — legacy result returned; Jev answers + agreement logged to
      *            logs/jev_shadow.jsonl for evaluation. Zero behavior change.
      *   live   — Jev's qualified/score returned; the legacy LLM runs only on

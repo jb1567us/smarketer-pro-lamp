@@ -31,7 +31,7 @@ require_once ics_repo_root() . '/includes/autoload.php';
 use App\Actions\ScoreLeadFitAction;
 use App\Icp\IcpProfile;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $legacyFn = fn() => ['qualified' => true, 'score' => 80, 'reason' => 'legacy verdict', 'source' => 'llm'];
 $all9 = array_fill_keys(IcpProfile::DIMENSIONS, 9.0);
@@ -174,5 +174,5 @@ check('veto reason names the type, value, and note',
     && stripos($r['reason'], 'no Jev call made') !== false);
 
 ScoreLeadFitAction::$profileOverride = null;
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 exit(ics_summary('test_exclusion_veto.php'));

@@ -67,7 +67,11 @@ try {
     $pdo->exec("INSERT INTO campaigns (name) VALUES ('Pilot')");
     $pdo->exec("INSERT INTO templates (campaign_id, subject, body, step_order) VALUES (1, 'T-subject', 'T-body', 1)");
     $pdo->exec("INSERT INTO leads (company_name, contact_name, email, campaign_id, notes) VALUES ('Acme', 'Ann', 'ann@acme.test', 1, 'ENRICHMENT: 50 staff')");
-    // JEV off (default when unset) — the behavior-preservation tests.
+    // JEV explicitly OFF for the behavior-preservation tests (shipped default
+    // is enabled+live since the 2026-10-01 ship call; existing stored rows
+    // always win over defaults).
+    $pdo->exec("INSERT INTO settings (setting_key, setting_value) VALUES ('jev_enabled', '0') ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
+    \App\Jev\DecisionTier::resetForTests();
     $router = new \App\Routers\SmartLLMRouter($pdo);
 
     $drafter = new class($pdo, $router) extends \App\Actions\DraftOutreachAction {
@@ -102,7 +106,7 @@ try {
     // --- Test C: off mode = old behavior ---------------------------------
     echo "C. Off-mode behavior preservation:\n";
     $callsBefore = $drafter->calls;
-    $res = $drafter->buildAndReview(1); // jev_enabled unset -> off
+    $res = $drafter->buildAndReview(1); // jev_enabled explicitly '0' -> off
     ok($res['review']['outcome'] === 'needs_human', 'off mode escalates to human review');
     ok($res['review']['revisions'] === 0, 'off mode performs zero regenerations');
     ok($drafter->calls === $callsBefore + 1, 'off mode makes exactly one draft LLM call (no reviewer LLM call)');

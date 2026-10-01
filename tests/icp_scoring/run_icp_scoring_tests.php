@@ -52,10 +52,11 @@ foreach (array_merge($lintFiles, glob($dir . '/*.php')) as $f) {
 echo "\n";
 
 // --- (b) shadow-first meta-guard ------------------------------------------------
-// No test file in this suite may persist a live default: no writes to the
-// jev settings rows, no settings-table mutations at all. Tier modes are only
-// ever injected per-process via reflection.
-echo "=== (b) shadow-first meta-guard ===\n";
+// No test file in this suite may persist settings rows or otherwise change
+// the effective default: the shipped default (enabled + live since the
+// 2026-10-01 ship call) lives in the DecisionTier defaults, not in stored
+// rows. Tier modes are only ever injected per-process via reflection.
+echo "=== (b) shipped-default meta-guard ===\n";
 $guardFail = 0;
 foreach (glob($dir . '/test_*.php') as $f) {
     $src = file_get_contents($f);
@@ -68,11 +69,11 @@ foreach (glob($dir . '/test_*.php') as $f) {
     if (preg_match("/['\"]jev_mode['\"]/", $src) && strpos($src, 'ics_inject_tier') === false) {
         $problems[] = "mentions jev_mode outside the reflection-injection helper";
     }
-    if (strpos($src, 'ics_assert_default_mode_off') === false) {
-        $problems[] = 'missing default-mode-off guard';
+    if (strpos($src, 'ics_assert_default_mode_live') === false) {
+        $problems[] = 'missing shipped-default guard';
     }
     if ($problems === []) {
-        echo "  PASS: {$short} (no persisted live default; default-mode guard present)\n";
+        echo "  PASS: {$short} (no persisted settings rows; shipped-default guard present)\n";
     } else {
         echo "  FAIL: {$short} — " . implode('; ', $problems) . "\n";
         $guardFail++;

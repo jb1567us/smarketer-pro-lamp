@@ -32,7 +32,7 @@ require_once ics_repo_root() . '/includes/autoload.php';
 
 use App\Jev\DecisionTier;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $api = file_get_contents(ics_repo_root() . '/api/icp.php');
 if ($api === false) {
@@ -119,7 +119,7 @@ check('CSRF token stripped from the payload before dispatch (transport-only)',
     strpos($api, "unset(\$data['csrf_token'])") !== false);
 
 DecisionTier::resetForTests();
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 exit(ics_summary('test_api_contract.php'));
 
 // --- 8. set_dimension_enabled: the tech_stack toggle --------------------------------------

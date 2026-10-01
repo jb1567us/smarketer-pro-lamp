@@ -79,14 +79,15 @@ function ics_inject_tier(array $cfg, $provider): void
 }
 
 /**
- * Shadow-first guard: after resetForTests() the effective default mode must
- * be 'off' (fail-closed). Call at the start and end of every test file.
+ * Shipped-default guard: after resetForTests() the effective default mode must
+ * be 'live' (owner ship call 2026-10-01: fresh installs run enabled + live;
+ * stored settings rows always win). Call at the start and end of every test file.
  */
-function ics_assert_default_mode_off(string $where): void
+function ics_assert_default_mode_live(string $where): void
 {
     \App\Jev\DecisionTier::resetForTests();
-    check("shadow-first: default DecisionTier mode is 'off' {$where}",
-        \App\Jev\DecisionTier::mode() === 'off');
+    check("shipped default: default DecisionTier mode is 'live' {$where}",
+        \App\Jev\DecisionTier::mode() === 'live');
 }
 
 /** Scripted provider: answers queues or Throwables; records calls.

@@ -37,7 +37,7 @@ require_once ics_repo_root() . '/includes/autoload.php';
 use App\Actions\ScoreLeadFitAction;
 use App\Icp\IcpProfile;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $fx = json_decode(
     file_get_contents(__DIR__ . '/fixtures/run4-frozen-dimensions.json'),
@@ -126,5 +126,5 @@ check('the only misses are Qualified (pre-existing) and Accurx (canary)',
     ],
     implode(' | ', $misses));
 
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 exit(ics_summary('test_run4_default_off_regression.php'));

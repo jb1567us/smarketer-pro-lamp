@@ -16,9 +16,11 @@ boundaries needs the owner's explicit decision, not a code review.
   questions and returns typed, calibrated decisions (`noul` probability, `choice`,
   `score`). It judges fit and grounding; it emits no prose, asserts no facts, and
   never generates names of real-world things.
-- **JEV stays off/shadow in production** (`jev_enabled='0'` default; shadow first).
-  The ship call — what runs live against real money and real senders — belongs to
-  the owner alone.
+- **JEV ships enabled + live by default on fresh installs** (owner ship call
+  2026-10-01; `jev_enabled` default `'1'`, `jev_mode` default `'live'`).
+  Existing installs keep their stored values — defaults apply only when the
+  setting row is absent. The ship call — what runs live against real money
+  and real senders — belongs to the owner alone, and he made it.
 
 Do not collapse the product distinction: where a fully-automatic sibling product
 would silently drop a failing item, LAMP must **flag** it (route to Needs Review).

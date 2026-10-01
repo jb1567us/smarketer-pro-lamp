@@ -44,7 +44,7 @@ require_once ics_repo_root() . '/includes/autoload.php';
 use App\Actions\ScoreLeadFitAction;
 use App\Icp\IcpProfile;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $DIMS = IcpProfile::DIMENSIONS; // six, tech_stack last
 $TH = ['qualify' => 75, 'review' => 50];
@@ -212,5 +212,5 @@ check('level 7 requires items on the target list',
     stripos($level7, 'target list') !== false,
     $level7);
 
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 exit(ics_summary('test_tech_stack_toggle.php'));

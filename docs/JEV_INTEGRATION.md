@@ -24,21 +24,21 @@ PHP port of `smarketer-pro`'s `src/llm/decision_tier.py` /
 
 | Setting key | Meaning |
 |---|---|
-| `jev_enabled` | `1` = tier active, `0` = bypassed (default `0`) |
-| `jev_mode` | `shadow` (default) or `live` |
+| `jev_enabled` | `1` = tier active, `0` = bypassed (default `1` since the 2026-10-01 ship call) |
+| `jev_mode` | `live` (default) or `shadow` |
 | `jev_api_key` | TypeSafe key (`ts_...`). Stored like any other secret; never returned by `api/settings.php`. Env fallback `TYPESAFE_API_KEY`. |
 | `jev_model` | Override, default `jev-latest` |
 | `jev_min_confidence` | Live-mode escalation threshold, default `0.65` |
 | `jev_shadow_log` | Optional explicit shadow-log path |
 
 - **off** (`jev_enabled=0`): the legacy LLM path runs, byte-for-byte as
-  before. Zero behavior change — this is the default and the safe state.
+  before. Zero behavior change — the safe state (explicit opt-out).
 - **shadow**: both run; the legacy result is returned and the Jev answers are
   appended to the shadow log for agreement analysis. Zero behavior change.
 - **live**: the Jev decision is returned. On Jev error **or** confidence below
   `jev_min_confidence`, the legacy LLM path runs instead (escalation).
 
-## Shadow-first rollout (do this before ever enabling live)
+## Shadow-first rollout (historical; completed before the 2026-10-01 ship call — fresh installs now ship live)
 
 1. Add `jev_api_key` in Settings, keep `jev_enabled=0`. Nothing changes.
 2. Set `jev_enabled=1`, `jev_mode=shadow`. Run normal qualification volume.

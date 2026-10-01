@@ -36,7 +36,7 @@ use App\Actions\AdjustIcpWeightsAction as A;
 use App\Icp\IcpProfile;
 use App\Jev\DecisionTier;
 
-ics_assert_default_mode_off('(start)');
+ics_assert_default_mode_live('(start)');
 
 $DIMS = IcpProfile::DIMENSIONS;
 $W = ['company_size' => 20, 'industry_fit' => 20, 'target_title' => 20,
@@ -401,5 +401,5 @@ check('cron: tuner failure is non-fatal to the queue',
     strpos($cron, 'ICP weight auto-tuner failed (queue continues)') !== false);
 
 DecisionTier::resetForTests();
-ics_assert_default_mode_off('(end)');
+ics_assert_default_mode_live('(end)');
 exit(ics_summary('test_feedback_math.php'));
