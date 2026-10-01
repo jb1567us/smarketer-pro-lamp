@@ -16,6 +16,8 @@ $newFiles = [
     $repo . '/includes/Actions/SendGateAction.php',
     $repo . '/includes/Actions/EnrichSufficiencyAction.php',
     $repo . '/includes/Actions/FollowUpTimingAction.php',
+    $repo . '/includes/Actions/ReviewDraftAction.php',
+    $repo . '/includes/Actions/SectionGroundingAction.php',
     $repo . '/api/send_email.php',
 ];
 
@@ -27,6 +29,7 @@ $testFiles = [
     'test_fit_scoring.php'        => 'weighted ICP fit scoring: veto, weighted math, threshold bands, shadow/live, markers, execute()',
     'test_per_dimension_abstention.php' => 'per-dimension abstention (lead_fit.score_fit only): marking, coverage floor, renormalization, reason transparency',
     'test_needs_review_eligibility.php' => 'needs_review leads: never enrolled/scheduled/sent; approval to Qualified is the only path',
+    'test_section_grounding.php'      => 'P3 per-section grounding QA (draft_review.section_grounding): scoring, one-shot regen, human gate, fail-closed',
 ];
 
 $php = PHP_BINARY;

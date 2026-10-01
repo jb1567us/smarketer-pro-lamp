@@ -153,12 +153,12 @@ class ReviewDraftAction extends AbstractAction
                     )
                     : ($verdict['reason'] ?? 'Awaiting human review.');
                 $this->setDraftStatus($currentId, 'needs_human', $note);
-                return [
+                return $this->withSectionGrounding($currentId, [
                     'outcome'   => 'needs_human',
                     'draft_id'  => $currentId,
                     'revisions' => $revisions,
                     'reason'    => $note,
-                ];
+                ]);
             }
 
             if ($verdict['approved']) {
@@ -169,12 +169,12 @@ class ReviewDraftAction extends AbstractAction
                     $verdict['latency_ms']
                 );
                 $this->setDraftStatus($currentId, 'approved', $note);
-                return [
+                return $this->withSectionGrounding($currentId, [
                     'outcome'   => 'approved',
                     'draft_id'  => $currentId,
                     'revisions' => $revisions,
                     'reason'    => $note,
-                ];
+                ]);
             }
 
             // Live-mode rejection: regenerate with LLM-written feedback,
@@ -187,12 +187,12 @@ class ReviewDraftAction extends AbstractAction
                     $verdict['confidence']
                 );
                 $this->setDraftStatus($currentId, 'needs_human', $note);
-                return [
+                return $this->withSectionGrounding($currentId, [
                     'outcome'   => 'needs_human',
                     'draft_id'  => $currentId,
                     'revisions' => $revisions,
                     'reason'    => $note,
-                ];
+                ]);
             }
 
             $feedback = $this->legacyReview(
@@ -208,6 +208,29 @@ class ReviewDraftAction extends AbstractAction
             );
             $currentId = (int)$regenerate($critique);
             $revisions++;
+        }
+    }
+
+    /**
+     * P3: per-section grounding QA (PI DP2/DP6 pattern) as machine QA
+     * feeding the human queue. Runs the SectionGroundingAction pass over
+     * the final draft: deterministic + JEV per-section scores, at most
+     * one anchored regeneration of failing sections (live mode only,
+     * never on approved drafts), and the evidence trail appended to the
+     * draft's reviewer_notes.
+     *
+     * This wrapper is fail-closed: any throw inside the QA pass leaves
+     * the review outcome untouched — the QA can never change an existing
+     * verdict, status, or draft id.
+     */
+    private function withSectionGrounding(int $draftId, array $result): array
+    {
+        try {
+            $qa = new SectionGroundingAction($this->pdo, $this->llmRouter);
+            return $qa->qaPass($draftId, $result);
+        } catch (\Throwable $e) {
+            error_log('[ReviewDraftAction] Section-grounding QA failed; keeping review outcome: ' . $e->getMessage());
+            return $result;
         }
     }
 
