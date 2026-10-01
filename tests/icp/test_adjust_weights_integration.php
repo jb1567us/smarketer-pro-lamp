@@ -398,6 +398,10 @@ try {
     // --- F7. buyer toggle: setDimensionEnabled() ----------------------------------
     echo "F7. setDimensionEnabled() (tech_stack toggle):\n";
     $pdo->exec("UPDATE icp_dimensions SET buyer_locked = 0 WHERE profile_id = 1");
+    // Fail-closed gate (D4, owner-approved 2026-10-01): enabling tech_stack
+    // requires a non-empty target technology surface first (buyer's path:
+    // save_hypothesis -> set_dimension_enabled).
+    \App\Icp\IcpProfile::updateTargetConfig(1, 'tech_stack', ['tools' => ['HubSpot', 'Salesforce']]);
     $enableW = ['company_size' => 15, 'industry_fit' => 15, 'target_title' => 15,
                 'geography' => 15, 'trigger_signals' => 15, 'tech_stack' => 25];
     $res = $action->setDimensionEnabled(1, 'tech_stack', true, $enableW, 'test enable');
